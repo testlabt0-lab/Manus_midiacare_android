@@ -47,6 +47,7 @@ import {
   type ClinicNotification,
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
+import { patientPrivacyInformation } from "./src/domain/privacyInfo";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
 import { resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory } from "./src/domain/syncHistoryPrivacy";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
@@ -110,6 +111,7 @@ export default function App() {
   const syncHistoryRef = useRef<PatientSyncHistoryEntry[]>([]);
   const [syncHistoryEnabled, setSyncHistoryEnabled] = useState(true);
   const syncHistoryEnabledRef = useRef(true);
+  const [privacyInfoOpen, setPrivacyInfoOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -442,6 +444,8 @@ export default function App() {
           <Text style={styles.sectionTitle}>خصوصية الجهاز</Text>
           <View style={styles.infoCard}>
             <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>حفظ سجل المزامنة محلياً</Text><Text style={styles.infoCopy}>{syncHistoryEnabled ? "يحفظ الجهاز آخر ثلاث نتائج عامة للمزامنة فقط. يمكنك مسحه أو إيقافه في أي وقت." : "تم إيقاف السجل وحذف نتائجه المحفوظة من هذا الجهاز."}</Text></View><Switch value={syncHistoryEnabled} onValueChange={setSyncHistoryPreference} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={syncHistoryEnabled ? "#0B776B" : "#F7FAF8"} /></View>
+            <View style={styles.divider} />
+            <Pressable onPress={() => setPrivacyInfoOpen(true)} style={({ pressed }) => [styles.privacyInfoLink, pressed && styles.pressed]}><MaterialIcons name="privacy-tip" size={18} color="#0B776B" /><Text style={styles.privacyInfoLinkText}>تفاصيل خصوصية البيانات</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
           </View>
         </View>
       }
@@ -482,6 +486,19 @@ export default function App() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      <Modal visible={privacyInfoOpen} animationType="slide" onRequestClose={() => setPrivacyInfoOpen(false)}>
+        <SafeAreaView style={styles.privacyScreen}>
+          <FlatList
+            data={patientPrivacyInformation}
+            keyExtractor={item => item.title}
+            contentContainerStyle={styles.privacyListContent}
+            ListHeaderComponent={<View><View style={styles.privacyHeader}><Pressable onPress={() => setPrivacyInfoOpen(false)} style={({ pressed }) => [styles.privacyCloseIcon, pressed && styles.pressed]} accessibilityLabel="العودة إلى الحساب"><MaterialIcons name="arrow-forward" size={23} color="#0B776B" /></Pressable><View style={styles.privacyHeaderCopy}><Text style={styles.privacyTitle}>خصوصية بياناتك</Text><Text style={styles.privacySubtitle}>شرح محلي موجز لما يحتفظ به تطبيق MediCare Pro Mobile على جهازك.</Text></View></View><View style={styles.privacyNotice}><MaterialIcons name="verified-user" size={20} color="#0B776B" /><Text style={styles.privacyNoticeText}>لا تعرض هذه الصفحة أي سجلات مريض أو تفاصيل زيارة أو معلومات صحية.</Text></View></View>}
+            renderItem={({ item }) => <View style={styles.privacySection}><Text style={styles.privacySectionTitle}>{item.title}</Text><Text style={styles.privacySectionBody}>{item.body}</Text></View>}
+            ListFooterComponent={<Pressable onPress={() => setPrivacyInfoOpen(false)} style={({ pressed }) => [styles.primaryButton, styles.privacyDoneButton, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>العودة إلى الحساب</Text></Pressable>}
+            showsVerticalScrollIndicator={false}
+          />
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -568,6 +585,21 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row-reverse", gap: 12 },
   infoTitle: { color: "#244C43", fontSize: 14, fontWeight: "800", textAlign: "right" },
   infoCopy: { color: "#6B857C", fontSize: 12, lineHeight: 19, marginTop: 3, textAlign: "right" },
+  privacyInfoLink: { alignItems: "center", flexDirection: "row-reverse", gap: 8, justifyContent: "space-between", minHeight: 38 },
+  privacyInfoLinkText: { color: "#0B776B", flex: 1, fontSize: 13, fontWeight: "800", textAlign: "right" },
+  privacyScreen: { backgroundColor: "#F6FAF8", flex: 1 },
+  privacyListContent: { padding: 20, paddingBottom: 32 },
+  privacyHeader: { alignItems: "flex-start", flexDirection: "row-reverse", gap: 12 },
+  privacyCloseIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 14, height: 46, justifyContent: "center", width: 46 },
+  privacyHeaderCopy: { flex: 1 },
+  privacyTitle: { color: "#173E37", fontSize: 26, fontWeight: "800", textAlign: "right" },
+  privacySubtitle: { color: "#668179", fontSize: 13, lineHeight: 21, marginTop: 6, textAlign: "right" },
+  privacyNotice: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 16, flexDirection: "row-reverse", gap: 9, marginTop: 22, padding: 14 },
+  privacyNoticeText: { color: "#31584F", flex: 1, fontSize: 12, lineHeight: 19, textAlign: "right" },
+  privacySection: { backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 18, borderWidth: 1, marginTop: 12, padding: 16 },
+  privacySectionTitle: { color: "#244C43", fontSize: 15, fontWeight: "800", textAlign: "right" },
+  privacySectionBody: { color: "#668179", fontSize: 13, lineHeight: 21, marginTop: 7, textAlign: "right" },
+  privacyDoneButton: { marginTop: 20 },
   syncStatusRow: { alignItems: "center", flexDirection: "row-reverse", gap: 8 },
   profileSyncButton: { flex: 0, flexDirection: "row-reverse", gap: 7, marginTop: 14, paddingHorizontal: 12 },
   switchRow: { alignItems: "center", flexDirection: "row-reverse", gap: 12, justifyContent: "space-between" },
