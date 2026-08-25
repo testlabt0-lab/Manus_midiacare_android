@@ -47,6 +47,7 @@ import {
   type ClinicNotification,
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
+import { patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
 import { patientPrivacyInformation } from "./src/domain/privacyInfo";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
 import { filterPatientSyncHistoryByRetention, getPatientSyncHistoryRetentionLabel, isPatientSyncHistoryRetention, patientSyncHistoryRetentions, resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory, type PatientSyncHistoryRetention } from "./src/domain/syncHistoryPrivacy";
@@ -152,6 +153,37 @@ export default function App() {
     void AsyncStorage.setItem(SYNC_HISTORY_RETENTION_STORAGE_KEY, retention).catch(() => undefined);
     const retainedHistory = filterPatientSyncHistoryByRetention(syncHistoryRef.current, retention, Date.now());
     if (retainedHistory.length !== syncHistoryRef.current.length) saveSyncHistory(retainedHistory);
+  };
+  const resetLocalPatientData = async () => {
+    await Promise.all([
+      clearPatientSession(),
+      AsyncStorage.multiRemove([...patientLocalStorageKeys]).catch(() => undefined),
+    ]);
+    syncHistoryRef.current = [];
+    syncHistoryEnabledRef.current = true;
+    syncHistoryRetentionRef.current = "7_DAYS";
+    setSession(null);
+    setVisits([]);
+    setNotifications([]);
+    setNotificationSettings({ appointments: true, medical: true });
+    setSyncHistory([]);
+    setSyncHistoryEnabled(true);
+    setSyncHistoryRetention("7_DAYS");
+    setSyncError(false);
+    setLastSyncedAt(null);
+    setComposerOpen(false);
+    setClinicName("");
+    setServiceName("");
+    setDistrictLabel("");
+    setScheduledStart("");
+    setTab("dashboard");
+    if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+  const confirmResetLocalPatientData = () => {
+    Alert.alert("حذف البيانات المحلية؟", patientLocalDataResetMessage, [
+      { text: "إلغاء", style: "cancel" },
+      { text: "حذف من هذا الجهاز", style: "destructive", onPress: () => void resetLocalPatientData() },
+    ]);
   };
 
   const renewSessionForAction = (activeSession: PatientSession) => renewPatientSessionForAction(activeSession, {
@@ -464,6 +496,8 @@ export default function App() {
             {syncHistoryEnabled ? <><View style={styles.divider} /><Text style={styles.retentionTitle}>مدة احتفاظ سجل المزامنة: {getPatientSyncHistoryRetentionLabel(syncHistoryRetention)}</Text><View style={styles.retentionOptions}>{patientSyncHistoryRetentions.map(retention => <Pressable key={retention} onPress={() => setSyncHistoryRetentionPreference(retention)} style={({ pressed }) => [styles.retentionOption, syncHistoryRetention === retention && styles.retentionOptionSelected, pressed && styles.pressed]}><Text style={[styles.retentionOptionText, syncHistoryRetention === retention && styles.retentionOptionTextSelected]}>{getPatientSyncHistoryRetentionLabel(retention)}</Text></Pressable>)}</View></> : null}
             <View style={styles.divider} />
             <Pressable onPress={() => setPrivacyInfoOpen(true)} style={({ pressed }) => [styles.privacyInfoLink, pressed && styles.pressed]}><MaterialIcons name="privacy-tip" size={18} color="#0B776B" /><Text style={styles.privacyInfoLinkText}>تفاصيل خصوصية البيانات</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
+            <View style={styles.divider} />
+            <Pressable onPress={confirmResetLocalPatientData} style={({ pressed }) => [styles.localDataDeleteButton, pressed && styles.pressed]}><MaterialIcons name="delete-outline" size={18} color="#A44916" /><Text style={styles.localDataDeleteButtonText}>حذف بيانات هذا الجهاز</Text></Pressable>
           </View>
         </View>
       }
@@ -611,6 +645,8 @@ const styles = StyleSheet.create({
   retentionOptionSelected: { backgroundColor: "#E6F5F2", borderColor: "#0B776B" },
   retentionOptionText: { color: "#668179", fontSize: 11, fontWeight: "800" },
   retentionOptionTextSelected: { color: "#0B776B" },
+  localDataDeleteButton: { alignItems: "center", backgroundColor: "#FFF8EF", borderColor: "#F0C98E", borderRadius: 11, borderWidth: 1, flexDirection: "row-reverse", gap: 8, justifyContent: "center", minHeight: 42, paddingHorizontal: 12 },
+  localDataDeleteButtonText: { color: "#A44916", fontSize: 13, fontWeight: "800" },
   privacyScreen: { backgroundColor: "#F6FAF8", flex: 1 },
   privacyListContent: { padding: 20, paddingBottom: 32 },
   privacyHeader: { alignItems: "flex-start", flexDirection: "row-reverse", gap: 12 },
