@@ -34,6 +34,7 @@ import { ClinicStatusBadge } from "./src/components/ClinicStatusBadge";
 import {
   advanceVisit,
   createLocalVisit,
+  getUpcomingVisit,
   getVisitSummary,
   type ClinicVisit,
   type VisitStatus,
@@ -137,6 +138,7 @@ export default function App() {
   const [districtLabel, setDistrictLabel] = useState("");
   const [scheduledStart, setScheduledStart] = useState("");
   const summary = useMemo(() => getVisitSummary(visits), [visits]);
+  const upcomingVisit = useMemo(() => getUpcomingVisit(visits), [visits]);
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
   const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
   const connectionDiagnostic = getPatientConnectionDiagnostic({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt, historyEnabled: syncHistoryEnabled, historyEntryCount: syncHistory.length, sessionRestoreState });
@@ -459,6 +461,13 @@ export default function App() {
             <View style={styles.heroCopy}><Text style={styles.heroTitle}>{session ? "حساب المريض متصل" : "وضع محلي مؤقت"}</Text><Text style={styles.heroText}>{syncStatus}</Text></View>
           </View>
           {session && syncError ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.retryButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="refresh" size={18} color="#A44916" /><Text style={styles.retryButtonText}>إعادة محاولة التحديث</Text></Pressable> : null}
+          <View style={styles.upcomingVisitCard}>
+            <View style={styles.upcomingVisitIcon}><MaterialIcons name={upcomingVisit ? "event-available" : "event-busy"} size={23} color="#0B776B" /></View>
+            <View style={styles.upcomingVisitCopy}>
+              <Text style={styles.upcomingVisitEyebrow}>موعدك القادم</Text>
+              {upcomingVisit ? <><Text style={styles.upcomingVisitTitle}>{upcomingVisit.serviceName}</Text><Text style={styles.upcomingVisitMeta}>{new Date(upcomingVisit.scheduledStart as number).toLocaleString("ar-SA", { dateStyle: "medium", timeStyle: "short" })}</Text></> : <Text style={styles.upcomingVisitEmpty}>لا يوجد موعد مستقبلي مؤكد أو نشط حالياً.</Text>}
+            </View>
+          </View>
           {session && syncHistoryEnabled ? <SyncHistoryCard entries={syncHistory} onClear={clearSyncHistory} /> : null}
           <View style={styles.metricGrid}>
             <MetricCard title="كل الزيارات" value={summary.total} icon="calendar-month" tint="#E6F5F2" />
@@ -663,6 +672,13 @@ const styles = StyleSheet.create({
   heroText: { color: "#D8F5EC", fontSize: 13, lineHeight: 20, textAlign: "right", marginTop: 4 },
   retryButton: { alignItems: "center", backgroundColor: "#FFF4DF", borderColor: "#F0C98E", borderRadius: 13, borderWidth: 1, flexDirection: "row-reverse", gap: 8, justifyContent: "center", marginTop: 10, minHeight: 44, paddingHorizontal: 14 },
   retryButtonText: { color: "#A44916", fontSize: 13, fontWeight: "800" },
+  upcomingVisitCard: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 18, borderWidth: 1, flexDirection: "row-reverse", gap: 12, marginTop: 12, padding: 15 },
+  upcomingVisitIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, height: 44, justifyContent: "center", width: 44 },
+  upcomingVisitCopy: { flex: 1 },
+  upcomingVisitEyebrow: { color: "#0B776B", fontSize: 11, fontWeight: "800", textAlign: "right" },
+  upcomingVisitTitle: { color: "#244C43", fontSize: 15, fontWeight: "800", marginTop: 4, textAlign: "right" },
+  upcomingVisitMeta: { color: "#668179", fontSize: 12, marginTop: 3, textAlign: "right" },
+  upcomingVisitEmpty: { color: "#6B857C", fontSize: 12, lineHeight: 19, marginTop: 4, textAlign: "right" },
   syncHistoryCard: { backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 18, borderWidth: 1, marginTop: 12, padding: 15 },
   syncHistoryHeader: { alignItems: "center", flexDirection: "row-reverse", justifyContent: "space-between" },
   syncHistoryTitle: { color: "#244C43", fontSize: 14, fontWeight: "800" },

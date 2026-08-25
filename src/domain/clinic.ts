@@ -64,3 +64,9 @@ export function getVisitSummary(visits: ClinicVisit[]) {
     completed: visits.filter(visit => visit.status === "COMPLETED").length,
   };
 }
+
+export function getUpcomingVisit(visits: ClinicVisit[], now = Date.now()): ClinicVisit | null {
+  return visits
+    .filter(visit => typeof visit.scheduledStart === "number" && Number.isFinite(visit.scheduledStart) && visit.scheduledStart >= now && visit.status !== "COMPLETED" && visit.status !== "CANCELLED")
+    .sort((left, right) => (left.scheduledStart ?? 0) - (right.scheduledStart ?? 0))[0] ?? null;
+}

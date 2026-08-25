@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceVisit, createLocalVisit, getVisitSummary } from "./clinic";
+import { advanceVisit, createLocalVisit, getUpcomingVisit, getVisitSummary } from "./clinic";
 
 describe("clinic visit workflow", () => {
   it("creates a new local clinic visit with the requested initial status", () => {
@@ -37,5 +37,21 @@ describe("clinic visit workflow", () => {
     const completed = advanceVisit(advanceVisit(advanceVisit(advanceVisit(second))));
 
     expect(getVisitSummary([active, completed])).toEqual({ total: 2, active: 1, inProgress: 1, completed: 1 });
+  });
+
+  it("selects the nearest valid future appointment while ignoring completed, cancelled, and past visits", () => {
+    const upcoming = getUpcomingVisit([
+      { id: "completed", clinicName: "عيادة أ", serviceName: "خدمة", status: "COMPLETED", createdAt: 1, scheduledStart: 1_300 },
+      { id: "cancelled", clinicName: "عيادة ب", serviceName: "خدمة", status: "CANCELLED", createdAt: 1, scheduledStart: 1_100 },
+      { id: "later", clinicName: "عيادة ج", serviceName: "خدمة", status: "CONFIRMED", createdAt: 1, scheduledStart: 1_500 },
+      { id: "next", clinicName: "عيادة د", serviceName: "خدمة", status: "ASSIGNED", createdAt: 1, scheduledStart: 1_200 },
+      { id: "past", clinicName: "عيادة هـ", serviceName: "خدمة", status: "CONFIRMED", createdAt: 1, scheduledStart: 900 },
+    ], 1_000);
+
+    expect(upcoming?.id).toBe("next");
+  });
+
+  it("returns no appointment when there is no valid future visit", () => {
+    expect(getUpcomingVisit([{ id: "local", clinicName: "عيادة", serviceName: "خدمة", status: "REQUESTED", createdAt: 1 }], 1_000)).toBeNull();
   });
 });
