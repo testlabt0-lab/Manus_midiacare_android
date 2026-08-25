@@ -46,6 +46,7 @@ import {
   type ClinicNotification,
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
+import { getPatientSyncStatus } from "./src/domain/syncStatus";
 
 type TabKey = "dashboard" | "visits" | "notifications" | "profile";
 
@@ -94,6 +95,7 @@ export default function App() {
   const [session, setSession] = useState<PatientSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -101,6 +103,7 @@ export default function App() {
   const [scheduledStart, setScheduledStart] = useState("");
   const summary = useMemo(() => getVisitSummary(visits), [visits]);
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
+  const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, lastSyncedAt });
 
   const renewSessionForAction = (activeSession: PatientSession) => renewPatientSessionForAction(activeSession, {
     renew: ensurePatientSession,
@@ -121,6 +124,7 @@ export default function App() {
       ]);
       setVisits(syncedVisits);
       setNotifications(syncedNotifications);
+      setLastSyncedAt(Date.now());
       return currentSession;
     } catch (error) {
       Alert.alert("تعذر التحديث", error instanceof Error ? error.message : "تحقق من اتصالك ثم حاول مرة أخرى.");
@@ -161,8 +165,15 @@ export default function App() {
   const signOut = async () => {
     await clearPatientSession();
     setSession(null);
+    setLastSyncedAt(null);
     setVisits(items => items.filter(item => item.source !== "REMOTE"));
     setTab("dashboard");
+  };
+
+  const refreshAccount = () => {
+    if (!session || syncing) return;
+    safeHaptic(Haptics.ImpactFeedbackStyle.Light);
+    void refreshPatientData(session);
   };
 
   const saveVisit = async () => {
@@ -288,7 +299,7 @@ export default function App() {
           <Text style={styles.pageCopy}>{session ? "أنت متصل بحسابك في MediCare Pro. تُعرض هنا زياراتك المصرح بها فقط." : "سجّل الدخول لمزامنة زياراتك مع تطبيق MediCare Pro Web، أو استخدم السجل المحلي مؤقتاً."}</Text>
           <View style={styles.heroCard}>
             <View style={styles.heroIcon}><MaterialIcons name="local-hospital" size={28} color="#FFFFFF" /></View>
-            <View style={styles.heroCopy}><Text style={styles.heroTitle}>{session ? "حساب المريض متصل" : "وضع محلي مؤقت"}</Text><Text style={styles.heroText}>{session ? "استخدم تحديث الزيارات لمزامنة أحدث بيانات حسابك." : "لن تُرسل البيانات إلى الخادم قبل تسجيل الدخول."}</Text></View>
+            <View style={styles.heroCopy}><Text style={styles.heroTitle}>{session ? "حساب المريض متصل" : "وضع محلي مؤقت"}</Text><Text style={styles.heroText}>{syncStatus}</Text></View>
           </View>
           <View style={styles.metricGrid}>
             <MetricCard title="كل الزيارات" value={summary.total} icon="calendar-month" tint="#E6F5F2" />
@@ -299,7 +310,7 @@ export default function App() {
           <Text style={styles.sectionTitle}>إجراءات سريعة</Text>
           <View style={styles.actionGrid}>
             <Pressable onPress={openComposer} style={({ pressed }) => [styles.actionCard, pressed && styles.pressed]}><MaterialIcons name="add-circle-outline" size={25} color="#0B776B" /><Text style={styles.actionTitle}>إضافة زيارة</Text><Text style={styles.actionCopy}>إنشاء سجل محلي جديد</Text></Pressable>
-            <Pressable onPress={session ? () => void refreshPatientData(session) : signIn} disabled={syncing} style={({ pressed }) => [styles.actionCard, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name={session ? "sync" : "login"} size={25} color="#0B776B" /><Text style={styles.actionTitle}>{session ? "تحديث الحساب" : "تسجيل الدخول"}</Text><Text style={styles.actionCopy}>{session ? "سحب الزيارات والتنبيهات المصرح بها" : "ربط حساب المريض بأمان"}</Text></Pressable>
+            <Pressable onPress={session ? refreshAccount : signIn} disabled={syncing} style={({ pressed }) => [styles.actionCard, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name={session ? "sync" : "login"} size={25} color="#0B776B" /><Text style={styles.actionTitle}>{session ? "تحديث الحساب" : "تسجيل الدخول"}</Text><Text style={styles.actionCopy}>{session ? "سحب الزيارات والتنبيهات المصرح بها" : "ربط حساب المريض بأمان"}</Text></Pressable>
           </View>
         </View>
       }
@@ -314,7 +325,7 @@ export default function App() {
       keyExtractor={item => item.id}
       renderItem={renderVisit}
       contentContainerStyle={[styles.listContent, styles.screenPadding, visibleVisits.length === 0 && styles.grow]}
-      ListHeaderComponent={<View style={styles.listHeader}><View><Text style={styles.pageTitle}>زياراتي</Text><Text style={styles.pageCopy}>{session ? "هذه هي الزيارات المرتبطة بحساب المريض في تطبيق الويب." : "هذه سجلات محلية؛ سجّل الدخول لمزامنتها مع حسابك."}</Text></View><Pressable onPress={openComposer} style={({ pressed }) => [styles.iconAction, pressed && styles.pressed]}><MaterialIcons name="add" size={24} color="#FFFFFF" /></Pressable></View>}
+      ListHeaderComponent={<View style={styles.listHeader}><View><Text style={styles.pageTitle}>زياراتي</Text><Text style={styles.pageCopy}>{session ? syncStatus : "هذه سجلات محلية؛ سجّل الدخول لمزامنتها مع حسابك."}</Text></View><View style={styles.listHeaderActions}>{session ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.iconAction, styles.syncAction, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={20} color="#0B776B" /></Pressable> : null}<Pressable onPress={openComposer} style={({ pressed }) => [styles.iconAction, pressed && styles.pressed]}><MaterialIcons name="add" size={24} color="#FFFFFF" /></Pressable></View></View>}
       ListEmptyComponent={<EmptyState icon="calendar-month" title="لا توجد زيارات بعد" copy={session ? "لا توجد زيارات مرتبطة بحسابك حالياً." : "أضف زيارة محلية أو سجّل الدخول للبحث في حسابك."} actionLabel="إضافة زيارة" onAction={openComposer} />}
       showsVerticalScrollIndicator={false}
     />
@@ -339,7 +350,7 @@ export default function App() {
         );
       }}
       contentContainerStyle={[styles.listContent, styles.screenPadding, notifications.length === 0 && styles.grow]}
-      ListHeaderComponent={<View><View style={styles.listHeader}><View><Text style={styles.pageTitle}>التنبيهات</Text><Text style={styles.pageCopy}>{session ? "تنبيهات حسابك المصرح بها من MediCare Pro، وليست تشخيصاً أو نصيحة علاجية." : "تنبيهات محلية للمواعيد ومعلومات عامة من العيادة."}</Text></View></View><View style={styles.notificationActions}>{!session ? <Pressable onPress={addMedicalInfoNotice} style={({ pressed }) => [styles.compactPrimary, pressed && styles.pressed]}><MaterialIcons name="add-alert" size={18} color="#FFFFFF" /><Text style={styles.compactPrimaryText}>تنبيه معلوماتي</Text></Pressable> : null}<Pressable onPress={() => void readAllNotifications()} disabled={unreadNotifications === 0 || syncing} style={({ pressed }) => [styles.compactSecondary, (unreadNotifications === 0 || syncing) && styles.disabledButton, pressed && styles.pressed]}><Text style={styles.compactSecondaryText}>تعليم الكل كمقروء</Text></Pressable></View></View>}
+      ListHeaderComponent={<View><View style={styles.listHeader}><View><Text style={styles.pageTitle}>التنبيهات</Text><Text style={styles.pageCopy}>{session ? syncStatus : "تنبيهات محلية للمواعيد ومعلومات عامة من العيادة."}</Text></View></View><View style={styles.notificationActions}>{session ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>تحديث</Text></Pressable> : <Pressable onPress={addMedicalInfoNotice} style={({ pressed }) => [styles.compactPrimary, pressed && styles.pressed]}><MaterialIcons name="add-alert" size={18} color="#FFFFFF" /><Text style={styles.compactPrimaryText}>تنبيه معلوماتي</Text></Pressable>}<Pressable onPress={() => void readAllNotifications()} disabled={unreadNotifications === 0 || syncing} style={({ pressed }) => [styles.compactSecondary, (unreadNotifications === 0 || syncing) && styles.disabledButton, pressed && styles.pressed]}><Text style={styles.compactSecondaryText}>تعليم الكل كمقروء</Text></Pressable></View></View>}
       ListEmptyComponent={<EmptyState icon="notifications-none" title="لا توجد تنبيهات بعد" copy={session ? "لا توجد تنبيهات مرتبطة بحسابك حالياً." : "ستظهر هنا تنبيهات الزيارات التي تضيفها والتنبيهات المعلوماتية التي تختار إضافتها."} actionLabel={session ? "تحديث الحساب" : "إضافة تنبيه معلوماتي"} onAction={session ? () => void refreshPatientData(session) : addMedicalInfoNotice} />}
       showsVerticalScrollIndicator={false}
     />
@@ -350,7 +361,7 @@ export default function App() {
       data={[]}
       keyExtractor={(_, index) => `profile-${index}`}
       renderItem={null}
-      ListHeaderComponent={<View style={styles.screenPadding}><View style={styles.profileMark}><MaterialIcons name="health-and-safety" size={34} color="#0B776B" /></View><Text style={styles.pageTitle}>MediCare Pro</Text><Text style={styles.pageCopy}>تطبيق مريض مستقل لأندرويد مرتبط بخدمة MediCare Pro Web.</Text><View style={styles.infoCard}><View style={styles.infoRow}><MaterialIcons name={session ? "verified-user" : "lock-outline"} size={20} color="#0B776B" /><View><Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : "لم يتم تسجيل الدخول"}</Text><Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : "سجّل الدخول لمزامنة بيانات حسابك مع تطبيق الويب."}</Text></View></View><View style={styles.divider} /><Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable></View><Text style={styles.sectionTitle}>إعدادات التنبيهات</Text><View style={styles.infoCard}><View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات المواعيد</Text><Text style={styles.infoCopy}>{session ? "تصل من سجل التنبيهات المتزامن مع حسابك." : "ينشئ التطبيق تنبيهاً محلياً عند إضافة زيارة."}</Text></View><Switch value={notificationSettings.appointments} onValueChange={value => setNotificationSettings(current => ({ ...current, appointments: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.appointments ? "#0B776B" : "#F7FAF8"} /></View><View style={styles.divider} /><View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات معلوماتية</Text><Text style={styles.infoCopy}>تسمح برسائل عامة صادرة عن العيادة دون نصيحة علاجية.</Text></View><Switch value={notificationSettings.medical} onValueChange={value => setNotificationSettings(current => ({ ...current, medical: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.medical ? "#0B776B" : "#F7FAF8"} /></View></View></View>}
+      ListHeaderComponent={<View style={styles.screenPadding}><View style={styles.profileMark}><MaterialIcons name="health-and-safety" size={34} color="#0B776B" /></View><Text style={styles.pageTitle}>MediCare Pro</Text><Text style={styles.pageCopy}>تطبيق مريض مستقل لأندرويد مرتبط بخدمة MediCare Pro Web.</Text><View style={styles.infoCard}><View style={styles.infoRow}><MaterialIcons name={session ? "verified-user" : "lock-outline"} size={20} color="#0B776B" /><View><Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : "لم يتم تسجيل الدخول"}</Text><Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : "سجّل الدخول لمزامنة بيانات حسابك مع تطبيق الويب."}</Text></View></View>{session ? <><View style={styles.divider} /><View style={styles.syncStatusRow}><MaterialIcons name="sync" size={18} color="#0B776B" /><Text style={styles.infoCopy}>{syncStatus}</Text></View><Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, styles.profileSyncButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>تحديث بيانات الحساب</Text></Pressable></> : null}<View style={styles.divider} /><Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable></View><Text style={styles.sectionTitle}>إعدادات التنبيهات</Text><View style={styles.infoCard}><View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات المواعيد</Text><Text style={styles.infoCopy}>{session ? "تصل من سجل التنبيهات المتزامن مع حسابك." : "ينشئ التطبيق تنبيهاً محلياً عند إضافة زيارة."}</Text></View><Switch value={notificationSettings.appointments} onValueChange={value => setNotificationSettings(current => ({ ...current, appointments: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.appointments ? "#0B776B" : "#F7FAF8"} /></View><View style={styles.divider} /><View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات معلوماتية</Text><Text style={styles.infoCopy}>تسمح برسائل عامة صادرة عن العيادة دون نصيحة علاجية.</Text></View><Switch value={notificationSettings.medical} onValueChange={value => setNotificationSettings(current => ({ ...current, medical: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.medical ? "#0B776B" : "#F7FAF8"} /></View></View></View>}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
     />
@@ -425,7 +436,9 @@ const styles = StyleSheet.create({
   notificationCountText: { color: "#FFFFFF", fontSize: 9, fontWeight: "800" },
   pressed: { opacity: 0.72, transform: [{ scale: 0.97 }] },
   listHeader: { alignItems: "flex-start", flexDirection: "row-reverse", justifyContent: "space-between", marginBottom: 18 },
+  listHeaderActions: { flexDirection: "row-reverse", gap: 8, marginTop: 6 },
   iconAction: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 14, height: 46, justifyContent: "center", marginTop: 6, width: 46 },
+  syncAction: { backgroundColor: "#EFF9F5", borderColor: "#CDE7DC", borderWidth: 1 },
   visitCard: { backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderWidth: 1, borderRadius: 18, marginBottom: 11, padding: 15 },
   visitRow: { alignItems: "center", flexDirection: "row-reverse", gap: 11 },
   visitIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, height: 42, justifyContent: "center", width: 42 },
@@ -460,6 +473,8 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row-reverse", gap: 12 },
   infoTitle: { color: "#244C43", fontSize: 14, fontWeight: "800", textAlign: "right" },
   infoCopy: { color: "#6B857C", fontSize: 12, lineHeight: 19, marginTop: 3, textAlign: "right" },
+  syncStatusRow: { alignItems: "center", flexDirection: "row-reverse", gap: 8 },
+  profileSyncButton: { flex: 0, flexDirection: "row-reverse", gap: 7, marginTop: 14, paddingHorizontal: 12 },
   switchRow: { alignItems: "center", flexDirection: "row-reverse", gap: 12, justifyContent: "space-between" },
   switchCopy: { flex: 1 },
   divider: { backgroundColor: "#E6EFEB", height: 1, marginVertical: 16 },
