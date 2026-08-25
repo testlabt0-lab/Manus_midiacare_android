@@ -47,6 +47,7 @@ import {
   type ClinicNotification,
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
+import { getPatientConnectionDiagnostic } from "./src/domain/connectionDiagnostics";
 import { patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
 import { patientPrivacyInformation } from "./src/domain/privacyInfo";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
@@ -116,6 +117,7 @@ export default function App() {
   const [syncHistoryRetention, setSyncHistoryRetention] = useState<PatientSyncHistoryRetention>("7_DAYS");
   const syncHistoryRetentionRef = useRef<PatientSyncHistoryRetention>("7_DAYS");
   const [privacyInfoOpen, setPrivacyInfoOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -124,6 +126,7 @@ export default function App() {
   const summary = useMemo(() => getVisitSummary(visits), [visits]);
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
   const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
+  const connectionDiagnostic = getPatientConnectionDiagnostic({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt, historyEnabled: syncHistoryEnabled, historyEntryCount: syncHistory.length });
 
   const saveSyncHistory = (entries: PatientSyncHistoryEntry[]) => {
     if (!shouldRecordPatientSyncHistory(syncHistoryEnabledRef.current)) return;
@@ -482,6 +485,8 @@ export default function App() {
               <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, styles.profileSyncButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>تحديث بيانات الحساب</Text></Pressable>
             </> : null}
             <View style={styles.divider} />
+            <Pressable onPress={() => setDiagnosticsOpen(true)} style={({ pressed }) => [styles.diagnosticsLink, pressed && styles.pressed]}><MaterialIcons name="network-check" size={18} color="#0B776B" /><Text style={styles.diagnosticsLinkText}>فحص الاتصال والمزامنة</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
+            <View style={styles.divider} />
             <Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable>
           </View>
           <Text style={styles.sectionTitle}>إعدادات التنبيهات</Text>
@@ -548,6 +553,19 @@ export default function App() {
             ListHeaderComponent={<View><View style={styles.privacyHeader}><Pressable onPress={() => setPrivacyInfoOpen(false)} style={({ pressed }) => [styles.privacyCloseIcon, pressed && styles.pressed]} accessibilityLabel="العودة إلى الحساب"><MaterialIcons name="arrow-forward" size={23} color="#0B776B" /></Pressable><View style={styles.privacyHeaderCopy}><Text style={styles.privacyTitle}>خصوصية بياناتك</Text><Text style={styles.privacySubtitle}>شرح محلي موجز لما يحتفظ به تطبيق MediCare Pro Mobile على جهازك.</Text></View></View><View style={styles.privacyNotice}><MaterialIcons name="verified-user" size={20} color="#0B776B" /><Text style={styles.privacyNoticeText}>لا تعرض هذه الصفحة أي سجلات مريض أو تفاصيل زيارة أو معلومات صحية.</Text></View></View>}
             renderItem={({ item }) => <View style={styles.privacySection}><Text style={styles.privacySectionTitle}>{item.title}</Text><Text style={styles.privacySectionBody}>{item.body}</Text></View>}
             ListFooterComponent={<Pressable onPress={() => setPrivacyInfoOpen(false)} style={({ pressed }) => [styles.primaryButton, styles.privacyDoneButton, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>العودة إلى الحساب</Text></Pressable>}
+            showsVerticalScrollIndicator={false}
+          />
+        </SafeAreaView>
+      </Modal>
+      <Modal visible={diagnosticsOpen} animationType="slide" onRequestClose={() => setDiagnosticsOpen(false)}>
+        <SafeAreaView style={styles.diagnosticsScreen}>
+          <FlatList
+            data={connectionDiagnostic.checks}
+            keyExtractor={item => item.label}
+            contentContainerStyle={styles.diagnosticsListContent}
+            ListHeaderComponent={<View><View style={styles.diagnosticsHeader}><Pressable onPress={() => setDiagnosticsOpen(false)} style={({ pressed }) => [styles.privacyCloseIcon, pressed && styles.pressed]} accessibilityLabel="العودة إلى الحساب"><MaterialIcons name="arrow-forward" size={23} color="#0B776B" /></Pressable><View style={styles.privacyHeaderCopy}><Text style={styles.privacyTitle}>فحص الاتصال</Text><Text style={styles.privacySubtitle}>ملخص مبسط لحالة الحساب والمزامنة على هذا الجهاز.</Text></View></View><View style={[styles.diagnosticSummary, connectionDiagnostic.tone === "ATTENTION" && styles.diagnosticSummaryAttention]}><MaterialIcons name={connectionDiagnostic.tone === "ATTENTION" ? "error-outline" : connectionDiagnostic.tone === "OK" ? "check-circle-outline" : "sync"} size={22} color={connectionDiagnostic.tone === "ATTENTION" ? "#A44916" : "#0B776B"} /><View style={styles.diagnosticSummaryCopy}><Text style={styles.diagnosticSummaryTitle}>{connectionDiagnostic.overallTitle}</Text><Text style={styles.diagnosticSummaryText}>{connectionDiagnostic.overallDescription}</Text></View></View></View>}
+            renderItem={({ item }) => <View style={styles.diagnosticCheck}><MaterialIcons name={item.tone === "ATTENTION" ? "error-outline" : item.tone === "OK" ? "check-circle-outline" : "info-outline"} size={20} color={item.tone === "ATTENTION" ? "#A44916" : item.tone === "OK" ? "#0B776B" : "#668179"} /><View style={styles.diagnosticCheckCopy}><Text style={styles.diagnosticCheckLabel}>{item.label}</Text><Text style={styles.diagnosticCheckValue}>{item.value}</Text></View></View>}
+            ListFooterComponent={<Pressable onPress={() => { setDiagnosticsOpen(false); session ? void refreshAccount() : void signIn(); }} disabled={syncing} style={({ pressed }) => [styles.primaryButton, styles.diagnosticsAction, syncing && styles.disabledButton, pressed && styles.pressed]}>{syncing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تحديث بيانات الحساب" : "تسجيل الدخول الآمن"}</Text>}</Pressable>}
             showsVerticalScrollIndicator={false}
           />
         </SafeAreaView>
@@ -639,6 +657,8 @@ const styles = StyleSheet.create({
   infoCopy: { color: "#6B857C", fontSize: 12, lineHeight: 19, marginTop: 3, textAlign: "right" },
   privacyInfoLink: { alignItems: "center", flexDirection: "row-reverse", gap: 8, justifyContent: "space-between", minHeight: 38 },
   privacyInfoLinkText: { color: "#0B776B", flex: 1, fontSize: 13, fontWeight: "800", textAlign: "right" },
+  diagnosticsLink: { alignItems: "center", flexDirection: "row-reverse", gap: 8, justifyContent: "space-between", minHeight: 38 },
+  diagnosticsLinkText: { color: "#0B776B", flex: 1, fontSize: 13, fontWeight: "800", textAlign: "right" },
   retentionTitle: { color: "#41665D", fontSize: 12, fontWeight: "800", textAlign: "right" },
   retentionOptions: { flexDirection: "row-reverse", gap: 7, marginTop: 10 },
   retentionOption: { alignItems: "center", borderColor: "#CDE2D9", borderRadius: 10, borderWidth: 1, flex: 1, minHeight: 36, justifyContent: "center", paddingHorizontal: 6 },
@@ -660,6 +680,19 @@ const styles = StyleSheet.create({
   privacySectionTitle: { color: "#244C43", fontSize: 15, fontWeight: "800", textAlign: "right" },
   privacySectionBody: { color: "#668179", fontSize: 13, lineHeight: 21, marginTop: 7, textAlign: "right" },
   privacyDoneButton: { marginTop: 20 },
+  diagnosticsScreen: { backgroundColor: "#F6FAF8", flex: 1 },
+  diagnosticsListContent: { padding: 20, paddingBottom: 32 },
+  diagnosticsHeader: { alignItems: "flex-start", flexDirection: "row-reverse", gap: 12 },
+  diagnosticSummary: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 16, flexDirection: "row-reverse", gap: 10, marginTop: 22, padding: 15 },
+  diagnosticSummaryAttention: { backgroundColor: "#FFF4DF" },
+  diagnosticSummaryCopy: { flex: 1 },
+  diagnosticSummaryTitle: { color: "#244C43", fontSize: 15, fontWeight: "800", textAlign: "right" },
+  diagnosticSummaryText: { color: "#5E786F", fontSize: 12, lineHeight: 19, marginTop: 4, textAlign: "right" },
+  diagnosticCheck: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 16, borderWidth: 1, flexDirection: "row-reverse", gap: 11, marginTop: 11, padding: 15 },
+  diagnosticCheckCopy: { flex: 1 },
+  diagnosticCheckLabel: { color: "#244C43", fontSize: 13, fontWeight: "800", textAlign: "right" },
+  diagnosticCheckValue: { color: "#668179", fontSize: 12, lineHeight: 19, marginTop: 3, textAlign: "right" },
+  diagnosticsAction: { marginTop: 20 },
   syncStatusRow: { alignItems: "center", flexDirection: "row-reverse", gap: 8 },
   profileSyncButton: { flex: 0, flexDirection: "row-reverse", gap: 7, marginTop: 14, paddingHorizontal: 12 },
   switchRow: { alignItems: "center", flexDirection: "row-reverse", gap: 12, justifyContent: "space-between" },
