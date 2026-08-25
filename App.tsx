@@ -52,6 +52,7 @@ import { getPatientConnectionDiagnostic } from "./src/domain/connectionDiagnosti
 import { shouldRefreshOnAppResume, type AppVisibility } from "./src/domain/foregroundRefresh";
 import { patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
 import { patientPrivacyInformation } from "./src/domain/privacyInfo";
+import { getReleaseChecklistStatusLabel, patientReleaseChecklist, type ReleaseChecklistStatus } from "./src/domain/releaseChecklist";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
 import { filterPatientSyncHistoryByRetention, getPatientSyncHistoryRetentionLabel, isPatientSyncHistoryRetention, patientSyncHistoryRetentions, resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory, type PatientSyncHistoryRetention } from "./src/domain/syncHistoryPrivacy";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
@@ -123,6 +124,7 @@ export default function App() {
   const appVisibilityRef = useRef<AppVisibility>((AppState.currentState ?? "unknown") as AppVisibility);
   const [privacyInfoOpen, setPrivacyInfoOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [releaseChecklistOpen, setReleaseChecklistOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -510,6 +512,8 @@ export default function App() {
             <View style={styles.divider} />
             <Pressable onPress={() => setDiagnosticsOpen(true)} style={({ pressed }) => [styles.diagnosticsLink, pressed && styles.pressed]}><MaterialIcons name="network-check" size={18} color="#0B776B" /><Text style={styles.diagnosticsLinkText}>فحص الاتصال والمزامنة</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
             <View style={styles.divider} />
+            <Pressable onPress={() => setReleaseChecklistOpen(true)} style={({ pressed }) => [styles.diagnosticsLink, pressed && styles.pressed]}><MaterialIcons name="fact-check" size={18} color="#0B776B" /><Text style={styles.diagnosticsLinkText}>قائمة تحقق الإصدار</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
+            <View style={styles.divider} />
             <Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable>
           </View>
           <Text style={styles.sectionTitle}>تحديث الحساب</Text>
@@ -593,6 +597,19 @@ export default function App() {
             ListHeaderComponent={<View><View style={styles.diagnosticsHeader}><Pressable onPress={() => setDiagnosticsOpen(false)} style={({ pressed }) => [styles.privacyCloseIcon, pressed && styles.pressed]} accessibilityLabel="العودة إلى الحساب"><MaterialIcons name="arrow-forward" size={23} color="#0B776B" /></Pressable><View style={styles.privacyHeaderCopy}><Text style={styles.privacyTitle}>فحص الاتصال</Text><Text style={styles.privacySubtitle}>ملخص مبسط لحالة الحساب والمزامنة على هذا الجهاز.</Text></View></View><View style={[styles.diagnosticSummary, connectionDiagnostic.tone === "ATTENTION" && styles.diagnosticSummaryAttention]}><MaterialIcons name={connectionDiagnostic.tone === "ATTENTION" ? "error-outline" : connectionDiagnostic.tone === "OK" ? "check-circle-outline" : "sync"} size={22} color={connectionDiagnostic.tone === "ATTENTION" ? "#A44916" : "#0B776B"} /><View style={styles.diagnosticSummaryCopy}><Text style={styles.diagnosticSummaryTitle}>{connectionDiagnostic.overallTitle}</Text><Text style={styles.diagnosticSummaryText}>{connectionDiagnostic.overallDescription}</Text></View></View></View>}
             renderItem={({ item }) => <View style={styles.diagnosticCheck}><MaterialIcons name={item.tone === "ATTENTION" ? "error-outline" : item.tone === "OK" ? "check-circle-outline" : "info-outline"} size={20} color={item.tone === "ATTENTION" ? "#A44916" : item.tone === "OK" ? "#0B776B" : "#668179"} /><View style={styles.diagnosticCheckCopy}><Text style={styles.diagnosticCheckLabel}>{item.label}</Text><Text style={styles.diagnosticCheckValue}>{item.value}</Text></View></View>}
             ListFooterComponent={<Pressable onPress={() => { setDiagnosticsOpen(false); session ? void refreshAccount() : void signIn(); }} disabled={syncing} style={({ pressed }) => [styles.primaryButton, styles.diagnosticsAction, syncing && styles.disabledButton, pressed && styles.pressed]}>{syncing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تحديث بيانات الحساب" : "تسجيل الدخول الآمن"}</Text>}</Pressable>}
+            showsVerticalScrollIndicator={false}
+          />
+        </SafeAreaView>
+      </Modal>
+      <Modal visible={releaseChecklistOpen} animationType="slide" onRequestClose={() => setReleaseChecklistOpen(false)}>
+        <SafeAreaView style={styles.releaseChecklistScreen}>
+          <FlatList
+            data={patientReleaseChecklist}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.diagnosticsListContent}
+            ListHeaderComponent={<View><View style={styles.diagnosticsHeader}><Pressable onPress={() => setReleaseChecklistOpen(false)} style={({ pressed }) => [styles.privacyCloseIcon, pressed && styles.pressed]} accessibilityLabel="العودة إلى الحساب"><MaterialIcons name="arrow-forward" size={23} color="#0B776B" /></Pressable><View style={styles.privacyHeaderCopy}><Text style={styles.privacyTitle}>تحقق قبل إصدار APK</Text><Text style={styles.privacySubtitle}>قائمة موجزة تحدد ما تم في بيئة التطوير وما يجب اختباره على جهاز Android.</Text></View></View><View style={styles.releaseChecklistNotice}><MaterialIcons name="info-outline" size={20} color="#31584F" /><Text style={styles.releaseChecklistNoticeText}>لا تعني عناصر القائمة أن اختبار الجهاز تم بالفعل. أكمل العناصر المطلوبة على جهاز أو محاكي قبل التوزيع.</Text></View></View>}
+            renderItem={({ item, index }) => <View>{index === 0 || patientReleaseChecklist[index - 1]?.section !== item.section ? <Text style={styles.releaseSectionTitle}>{item.section}</Text> : null}<View style={styles.releaseChecklistItem}><MaterialIcons name={item.status === "VERIFIED" ? "check-circle-outline" : item.status === "DEVICE_REQUIRED" ? "phone-android" : "assignment-late"} size={21} color={item.status === "VERIFIED" ? "#0B776B" : item.status === "DEVICE_REQUIRED" ? "#3B5E9B" : "#A44916"} /><View style={styles.releaseChecklistCopy}><Text style={styles.releaseChecklistTitle}>{item.title}</Text><Text style={styles.releaseChecklistDescription}>{item.description}</Text><Text style={[styles.releaseChecklistStatus, item.status === "VERIFIED" ? styles.releaseChecklistStatusVerified : item.status === "DEVICE_REQUIRED" ? styles.releaseChecklistStatusDevice : styles.releaseChecklistStatusRelease]}>{getReleaseChecklistStatusLabel(item.status as ReleaseChecklistStatus)}</Text></View></View></View>}
+            ListFooterComponent={<Pressable onPress={() => setReleaseChecklistOpen(false)} style={({ pressed }) => [styles.primaryButton, styles.diagnosticsAction, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>العودة إلى الحساب</Text></Pressable>}
             showsVerticalScrollIndicator={false}
           />
         </SafeAreaView>
@@ -720,6 +737,18 @@ const styles = StyleSheet.create({
   diagnosticCheckLabel: { color: "#244C43", fontSize: 13, fontWeight: "800", textAlign: "right" },
   diagnosticCheckValue: { color: "#668179", fontSize: 12, lineHeight: 19, marginTop: 3, textAlign: "right" },
   diagnosticsAction: { marginTop: 20 },
+  releaseChecklistScreen: { backgroundColor: "#F6FAF8", flex: 1 },
+  releaseChecklistNotice: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 16, flexDirection: "row-reverse", gap: 9, marginTop: 22, padding: 14 },
+  releaseChecklistNoticeText: { color: "#31584F", flex: 1, fontSize: 12, lineHeight: 19, textAlign: "right" },
+  releaseSectionTitle: { color: "#244C43", fontSize: 15, fontWeight: "800", marginTop: 20, textAlign: "right" },
+  releaseChecklistItem: { alignItems: "flex-start", backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 16, borderWidth: 1, flexDirection: "row-reverse", gap: 11, marginTop: 10, padding: 15 },
+  releaseChecklistCopy: { flex: 1 },
+  releaseChecklistTitle: { color: "#244C43", fontSize: 13, fontWeight: "800", textAlign: "right" },
+  releaseChecklistDescription: { color: "#668179", fontSize: 12, lineHeight: 19, marginTop: 4, textAlign: "right" },
+  releaseChecklistStatus: { alignSelf: "flex-end", borderRadius: 9, fontSize: 10, fontWeight: "800", marginTop: 8, overflow: "hidden", paddingHorizontal: 8, paddingVertical: 4 },
+  releaseChecklistStatusVerified: { backgroundColor: "#E6F5F2", color: "#0B776B" },
+  releaseChecklistStatusDevice: { backgroundColor: "#EAF0FC", color: "#3B5E9B" },
+  releaseChecklistStatusRelease: { backgroundColor: "#FFF4DF", color: "#A44916" },
   syncStatusRow: { alignItems: "center", flexDirection: "row-reverse", gap: 8 },
   profileSyncButton: { flex: 0, flexDirection: "row-reverse", gap: 7, marginTop: 14, paddingHorizontal: 12 },
   switchRow: { alignItems: "center", flexDirection: "row-reverse", gap: 12, justifyContent: "space-between" },
