@@ -48,10 +48,12 @@ import {
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
+import { resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory } from "./src/domain/syncHistoryPrivacy";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
 
 type TabKey = "dashboard" | "visits" | "notifications" | "profile";
 const SYNC_HISTORY_STORAGE_KEY = "medicare_pro_patient_sync_history";
+const SYNC_HISTORY_PREFERENCE_STORAGE_KEY = "medicare_pro_patient_sync_history_enabled";
 
 function safeHaptic(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS !== "web") {
@@ -106,6 +108,8 @@ export default function App() {
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [syncHistory, setSyncHistory] = useState<PatientSyncHistoryEntry[]>([]);
   const syncHistoryRef = useRef<PatientSyncHistoryEntry[]>([]);
+  const [syncHistoryEnabled, setSyncHistoryEnabled] = useState(true);
+  const syncHistoryEnabledRef = useRef(true);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -116,6 +120,7 @@ export default function App() {
   const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
 
   const saveSyncHistory = (entries: PatientSyncHistoryEntry[]) => {
+    if (!shouldRecordPatientSyncHistory(syncHistoryEnabledRef.current)) return;
     syncHistoryRef.current = entries;
     setSyncHistory(entries);
     void AsyncStorage.setItem(SYNC_HISTORY_STORAGE_KEY, JSON.stringify(entries)).catch(() => undefined);
@@ -125,6 +130,12 @@ export default function App() {
     syncHistoryRef.current = [];
     setSyncHistory([]);
     void AsyncStorage.removeItem(SYNC_HISTORY_STORAGE_KEY).catch(() => undefined);
+  };
+  const setSyncHistoryPreference = (enabled: boolean) => {
+    syncHistoryEnabledRef.current = enabled;
+    setSyncHistoryEnabled(enabled);
+    void AsyncStorage.setItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY, enabled ? "true" : "false").catch(() => undefined);
+    if (!enabled) clearSyncHistory();
   };
 
   const renewSessionForAction = (activeSession: PatientSession) => renewPatientSessionForAction(activeSession, {
@@ -163,11 +174,16 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const [storedSession, storedHistory] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null)]);
+      const [storedSession, storedHistory, storedPreference] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null)]);
+      const historyEnabled = storedPreference !== "false";
+      syncHistoryEnabledRef.current = historyEnabled;
+      setSyncHistoryEnabled(historyEnabled);
       let parsedHistory: PatientSyncHistoryEntry[] = [];
       try { parsedHistory = parsePatientSyncHistory(storedHistory ? JSON.parse(storedHistory) : []); } catch { parsedHistory = []; }
-      syncHistoryRef.current = parsedHistory;
-      setSyncHistory(parsedHistory);
+      const visibleHistory = resolvePatientSyncHistoryPreference(historyEnabled, parsedHistory);
+      syncHistoryRef.current = visibleHistory;
+      setSyncHistory(visibleHistory);
+      if (!historyEnabled) void AsyncStorage.removeItem(SYNC_HISTORY_STORAGE_KEY).catch(() => undefined);
       setSession(storedSession);
       setAuthReady(true);
       if (storedSession) await refreshPatientData(storedSession);
@@ -335,7 +351,7 @@ export default function App() {
             <View style={styles.heroCopy}><Text style={styles.heroTitle}>{session ? "حساب المريض متصل" : "وضع محلي مؤقت"}</Text><Text style={styles.heroText}>{syncStatus}</Text></View>
           </View>
           {session && syncError ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.retryButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="refresh" size={18} color="#A44916" /><Text style={styles.retryButtonText}>إعادة محاولة التحديث</Text></Pressable> : null}
-          {session ? <SyncHistoryCard entries={syncHistory} onClear={clearSyncHistory} /> : null}
+          {session && syncHistoryEnabled ? <SyncHistoryCard entries={syncHistory} onClear={clearSyncHistory} /> : null}
           <View style={styles.metricGrid}>
             <MetricCard title="كل الزيارات" value={summary.total} icon="calendar-month" tint="#E6F5F2" />
             <MetricCard title="نشطة" value={summary.active} icon="pending-actions" tint="#FFF4DF" />
@@ -396,7 +412,39 @@ export default function App() {
       data={[]}
       keyExtractor={(_, index) => `profile-${index}`}
       renderItem={null}
-      ListHeaderComponent={<View style={styles.screenPadding}><View style={styles.profileMark}><MaterialIcons name="health-and-safety" size={34} color="#0B776B" /></View><Text style={styles.pageTitle}>MediCare Pro</Text><Text style={styles.pageCopy}>تطبيق مريض مستقل لأندرويد مرتبط بخدمة MediCare Pro Web.</Text><View style={styles.infoCard}><View style={styles.infoRow}><MaterialIcons name={session ? "verified-user" : "lock-outline"} size={20} color="#0B776B" /><View><Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : "لم يتم تسجيل الدخول"}</Text><Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : "سجّل الدخول لمزامنة بيانات حسابك مع تطبيق الويب."}</Text></View></View>{session ? <><View style={styles.divider} /><View style={styles.syncStatusRow}><MaterialIcons name="sync" size={18} color="#0B776B" /><Text style={styles.infoCopy}>{syncStatus}</Text></View><Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, styles.profileSyncButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>تحديث بيانات الحساب</Text></Pressable></> : null}<View style={styles.divider} /><Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable></View><Text style={styles.sectionTitle}>إعدادات التنبيهات</Text><View style={styles.infoCard}><View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات المواعيد</Text><Text style={styles.infoCopy}>{session ? "تصل من سجل التنبيهات المتزامن مع حسابك." : "ينشئ التطبيق تنبيهاً محلياً عند إضافة زيارة."}</Text></View><Switch value={notificationSettings.appointments} onValueChange={value => setNotificationSettings(current => ({ ...current, appointments: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.appointments ? "#0B776B" : "#F7FAF8"} /></View><View style={styles.divider} /><View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات معلوماتية</Text><Text style={styles.infoCopy}>تسمح برسائل عامة صادرة عن العيادة دون نصيحة علاجية.</Text></View><Switch value={notificationSettings.medical} onValueChange={value => setNotificationSettings(current => ({ ...current, medical: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.medical ? "#0B776B" : "#F7FAF8"} /></View></View></View>}
+      ListHeaderComponent={
+        <View style={styles.screenPadding}>
+          <View style={styles.profileMark}><MaterialIcons name="health-and-safety" size={34} color="#0B776B" /></View>
+          <Text style={styles.pageTitle}>MediCare Pro</Text>
+          <Text style={styles.pageCopy}>تطبيق مريض مستقل لأندرويد مرتبط بخدمة MediCare Pro Web.</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.infoRow}>
+              <MaterialIcons name={session ? "verified-user" : "lock-outline"} size={20} color="#0B776B" />
+              <View>
+                <Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : "لم يتم تسجيل الدخول"}</Text>
+                <Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : "سجّل الدخول لمزامنة بيانات حسابك مع تطبيق الويب."}</Text>
+              </View>
+            </View>
+            {session ? <>
+              <View style={styles.divider} />
+              <View style={styles.syncStatusRow}><MaterialIcons name="sync" size={18} color="#0B776B" /><Text style={styles.infoCopy}>{syncStatus}</Text></View>
+              <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, styles.profileSyncButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>تحديث بيانات الحساب</Text></Pressable>
+            </> : null}
+            <View style={styles.divider} />
+            <Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable>
+          </View>
+          <Text style={styles.sectionTitle}>إعدادات التنبيهات</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات المواعيد</Text><Text style={styles.infoCopy}>{session ? "تصل من سجل التنبيهات المتزامن مع حسابك." : "ينشئ التطبيق تنبيهاً محلياً عند إضافة زيارة."}</Text></View><Switch value={notificationSettings.appointments} onValueChange={value => setNotificationSettings(current => ({ ...current, appointments: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.appointments ? "#0B776B" : "#F7FAF8"} /></View>
+            <View style={styles.divider} />
+            <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تنبيهات معلوماتية</Text><Text style={styles.infoCopy}>تسمح برسائل عامة صادرة عن العيادة دون نصيحة علاجية.</Text></View><Switch value={notificationSettings.medical} onValueChange={value => setNotificationSettings(current => ({ ...current, medical: value }))} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={notificationSettings.medical ? "#0B776B" : "#F7FAF8"} /></View>
+          </View>
+          <Text style={styles.sectionTitle}>خصوصية الجهاز</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>حفظ سجل المزامنة محلياً</Text><Text style={styles.infoCopy}>{syncHistoryEnabled ? "يحفظ الجهاز آخر ثلاث نتائج عامة للمزامنة فقط. يمكنك مسحه أو إيقافه في أي وقت." : "تم إيقاف السجل وحذف نتائجه المحفوظة من هذا الجهاز."}</Text></View><Switch value={syncHistoryEnabled} onValueChange={setSyncHistoryPreference} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={syncHistoryEnabled ? "#0B776B" : "#F7FAF8"} /></View>
+          </View>
+        </View>
+      }
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
     />
