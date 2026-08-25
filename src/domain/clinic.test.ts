@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceVisit, createLocalVisit, getUpcomingVisit, getVisitSummary } from "./clinic";
+import { advanceVisit, createLocalVisit, filterPatientVisits, getUpcomingVisit, getVisitSummary } from "./clinic";
 
 describe("clinic visit workflow", () => {
   it("creates a new local clinic visit with the requested initial status", () => {
@@ -53,5 +53,18 @@ describe("clinic visit workflow", () => {
 
   it("returns no appointment when there is no valid future visit", () => {
     expect(getUpcomingVisit([{ id: "local", clinicName: "عيادة", serviceName: "خدمة", status: "REQUESTED", createdAt: 1 }], 1_000)).toBeNull();
+  });
+
+  it("filters visits by active, completed, and cancelled status without changing source records", () => {
+    const visits = [
+      { id: "active", clinicName: "عيادة", serviceName: "خدمة", status: "EN_ROUTE" as const, createdAt: 1 },
+      { id: "completed", clinicName: "عيادة", serviceName: "خدمة", status: "COMPLETED" as const, createdAt: 2 },
+      { id: "cancelled", clinicName: "عيادة", serviceName: "خدمة", status: "CANCELLED" as const, createdAt: 3 },
+    ];
+
+    expect(filterPatientVisits(visits, "ACTIVE").map(visit => visit.id)).toEqual(["active"]);
+    expect(filterPatientVisits(visits, "COMPLETED").map(visit => visit.id)).toEqual(["completed"]);
+    expect(filterPatientVisits(visits, "CANCELLED").map(visit => visit.id)).toEqual(["cancelled"]);
+    expect(filterPatientVisits(visits, "ALL")).toBe(visits);
   });
 });

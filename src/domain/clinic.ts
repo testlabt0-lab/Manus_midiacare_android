@@ -1,4 +1,12 @@
 export type VisitStatus = "REQUESTED" | "ASSIGNED" | "CONFIRMED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type PatientVisitFilter = "ALL" | "ACTIVE" | "COMPLETED" | "CANCELLED";
+
+export const patientVisitFilterLabel: Record<PatientVisitFilter, string> = {
+  ALL: "الكل",
+  ACTIVE: "النشطة",
+  COMPLETED: "المكتملة",
+  CANCELLED: "الملغاة",
+};
 
 export type ClinicVisit = {
   id: string;
@@ -69,4 +77,10 @@ export function getUpcomingVisit(visits: ClinicVisit[], now = Date.now()): Clini
   return visits
     .filter(visit => typeof visit.scheduledStart === "number" && Number.isFinite(visit.scheduledStart) && visit.scheduledStart >= now && visit.status !== "COMPLETED" && visit.status !== "CANCELLED")
     .sort((left, right) => (left.scheduledStart ?? 0) - (right.scheduledStart ?? 0))[0] ?? null;
+}
+
+export function filterPatientVisits(visits: ClinicVisit[], filter: PatientVisitFilter): ClinicVisit[] {
+  if (filter === "ALL") return visits;
+  if (filter === "ACTIVE") return visits.filter(visit => visit.status !== "COMPLETED" && visit.status !== "CANCELLED");
+  return visits.filter(visit => visit.status === filter);
 }
