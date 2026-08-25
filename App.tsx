@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -48,6 +49,7 @@ import {
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
 import { getPatientConnectionDiagnostic } from "./src/domain/connectionDiagnostics";
+import { shouldRefreshOnAppResume, type AppVisibility } from "./src/domain/foregroundRefresh";
 import { patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
 import { patientPrivacyInformation } from "./src/domain/privacyInfo";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
@@ -58,6 +60,7 @@ type TabKey = "dashboard" | "visits" | "notifications" | "profile";
 const SYNC_HISTORY_STORAGE_KEY = "medicare_pro_patient_sync_history";
 const SYNC_HISTORY_PREFERENCE_STORAGE_KEY = "medicare_pro_patient_sync_history_enabled";
 const SYNC_HISTORY_RETENTION_STORAGE_KEY = "medicare_pro_patient_sync_history_retention";
+const REFRESH_ON_RESUME_STORAGE_KEY = "medicare_pro_patient_refresh_on_resume";
 
 function safeHaptic(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS !== "web") {
@@ -116,6 +119,8 @@ export default function App() {
   const syncHistoryEnabledRef = useRef(true);
   const [syncHistoryRetention, setSyncHistoryRetention] = useState<PatientSyncHistoryRetention>("7_DAYS");
   const syncHistoryRetentionRef = useRef<PatientSyncHistoryRetention>("7_DAYS");
+  const [refreshOnResume, setRefreshOnResume] = useState(false);
+  const appVisibilityRef = useRef<AppVisibility>((AppState.currentState ?? "unknown") as AppVisibility);
   const [privacyInfoOpen, setPrivacyInfoOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -157,6 +162,10 @@ export default function App() {
     const retainedHistory = filterPatientSyncHistoryByRetention(syncHistoryRef.current, retention, Date.now());
     if (retainedHistory.length !== syncHistoryRef.current.length) saveSyncHistory(retainedHistory);
   };
+  const setRefreshOnResumePreference = (enabled: boolean) => {
+    setRefreshOnResume(enabled);
+    void AsyncStorage.setItem(REFRESH_ON_RESUME_STORAGE_KEY, enabled ? "true" : "false").catch(() => undefined);
+  };
   const resetLocalPatientData = async () => {
     await Promise.all([
       clearPatientSession(),
@@ -172,6 +181,7 @@ export default function App() {
     setSyncHistory([]);
     setSyncHistoryEnabled(true);
     setSyncHistoryRetention("7_DAYS");
+    setRefreshOnResume(false);
     setSyncError(false);
     setLastSyncedAt(null);
     setComposerOpen(false);
@@ -225,13 +235,14 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const [storedSession, storedHistory, storedPreference, storedRetention] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_RETENTION_STORAGE_KEY).catch(() => null)]);
+      const [storedSession, storedHistory, storedPreference, storedRetention, storedRefreshPreference] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_RETENTION_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(REFRESH_ON_RESUME_STORAGE_KEY).catch(() => null)]);
       const historyEnabled = storedPreference !== "false";
       const historyRetention = isPatientSyncHistoryRetention(storedRetention) ? storedRetention : "7_DAYS";
       syncHistoryEnabledRef.current = historyEnabled;
       setSyncHistoryEnabled(historyEnabled);
       syncHistoryRetentionRef.current = historyRetention;
       setSyncHistoryRetention(historyRetention);
+      setRefreshOnResume(storedRefreshPreference === "true");
       let parsedHistory: PatientSyncHistoryEntry[] = [];
       try { parsedHistory = parsePatientSyncHistory(storedHistory ? JSON.parse(storedHistory) : []); } catch { parsedHistory = []; }
       const visibleHistory = resolvePatientSyncHistoryPreference(historyEnabled, filterPatientSyncHistoryByRetention(parsedHistory, historyRetention, Date.now()));
@@ -243,6 +254,18 @@ export default function App() {
       if (storedSession) await refreshPatientData(storedSession);
     })();
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", nextState => {
+      const previousState = appVisibilityRef.current;
+      const nextVisibility = (nextState ?? "unknown") as AppVisibility;
+      appVisibilityRef.current = nextVisibility;
+      if (shouldRefreshOnAppResume({ enabled: refreshOnResume, previousState, nextState: nextVisibility, hasSession: Boolean(session), isSyncing: syncing }) && session) {
+        void refreshPatientData(session);
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshOnResume, session, syncing]);
 
   const openComposer = () => {
     safeHaptic(Haptics.ImpactFeedbackStyle.Light);
@@ -488,6 +511,10 @@ export default function App() {
             <Pressable onPress={() => setDiagnosticsOpen(true)} style={({ pressed }) => [styles.diagnosticsLink, pressed && styles.pressed]}><MaterialIcons name="network-check" size={18} color="#0B776B" /><Text style={styles.diagnosticsLinkText}>فحص الاتصال والمزامنة</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
             <View style={styles.divider} />
             <Pressable onPress={session ? signOut : signIn} disabled={syncing || !authReady} style={({ pressed }) => [styles.primaryButton, (syncing || !authReady) && styles.disabledButton, pressed && styles.pressed]}>{syncing || !authReady ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{session ? "تسجيل الخروج" : "تسجيل الدخول الآمن"}</Text>}</Pressable>
+          </View>
+          <Text style={styles.sectionTitle}>تحديث الحساب</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>تحديث عند فتح التطبيق</Text><Text style={styles.infoCopy}>يحدّث التطبيق الزيارات والتنبيهات المصرح بها عند عودتك إليه فقط، إذا كان الحساب متصلاً. لا يستخدم هذا الخيار مؤقتات أو تحديثات في الخلفية.</Text></View><Switch value={refreshOnResume} onValueChange={setRefreshOnResumePreference} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={refreshOnResume ? "#0B776B" : "#F7FAF8"} /></View>
           </View>
           <Text style={styles.sectionTitle}>إعدادات التنبيهات</Text>
           <View style={styles.infoCard}>
