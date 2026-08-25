@@ -1,7 +1,8 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,9 +47,11 @@ import {
   type ClinicNotification,
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
+import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
 
 type TabKey = "dashboard" | "visits" | "notifications" | "profile";
+const SYNC_HISTORY_STORAGE_KEY = "medicare_pro_patient_sync_history";
 
 function safeHaptic(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS !== "web") {
@@ -76,6 +79,10 @@ function MetricCard({ title, value, icon, tint }: { title: string; value: number
   );
 }
 
+function SyncHistoryCard({ entries, onClear }: { entries: PatientSyncHistoryEntry[]; onClear: () => void }) {
+  return <View style={styles.syncHistoryCard}><View style={styles.syncHistoryHeader}><Text style={styles.syncHistoryTitle}>سجل المزامنة المحلي</Text>{entries.length ? <Pressable onPress={onClear} style={({ pressed }) => [styles.clearHistoryButton, pressed && styles.pressed]}><Text style={styles.clearHistoryButtonText}>مسح السجل</Text></Pressable> : null}</View>{entries.length ? entries.map(entry => <View key={entry.id} style={styles.syncHistoryRow}><MaterialIcons name={entry.outcome === "SUCCESS" ? "check-circle-outline" : "error-outline"} size={18} color={entry.outcome === "SUCCESS" ? "#0B776B" : "#A44916"} /><View style={styles.syncHistoryCopy}><Text style={styles.syncHistoryEntryTitle}>{getPatientSyncHistoryLabel(entry.outcome)}</Text><Text style={styles.syncHistoryEntryTime}>{new Date(entry.occurredAt).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}</Text></View></View>) : <Text style={styles.syncHistoryEmpty}>لا توجد نتائج مزامنة محفوظة على هذا الجهاز بعد.</Text>}</View>;
+}
+
 function EmptyState({ icon, title, copy, actionLabel, onAction }: { icon: keyof typeof MaterialIcons.glyphMap; title: string; copy: string; actionLabel?: string; onAction?: () => void }) {
   return (
     <View style={styles.emptyState}>
@@ -97,6 +104,8 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncHistory, setSyncHistory] = useState<PatientSyncHistoryEntry[]>([]);
+  const syncHistoryRef = useRef<PatientSyncHistoryEntry[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -106,11 +115,24 @@ export default function App() {
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
   const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
 
+  const saveSyncHistory = (entries: PatientSyncHistoryEntry[]) => {
+    syncHistoryRef.current = entries;
+    setSyncHistory(entries);
+    void AsyncStorage.setItem(SYNC_HISTORY_STORAGE_KEY, JSON.stringify(entries)).catch(() => undefined);
+  };
+  const recordSyncOutcome = (outcome: PatientSyncOutcome) => saveSyncHistory(appendPatientSyncHistory(syncHistoryRef.current, outcome, Date.now()));
+  const clearSyncHistory = () => {
+    syncHistoryRef.current = [];
+    setSyncHistory([]);
+    void AsyncStorage.removeItem(SYNC_HISTORY_STORAGE_KEY).catch(() => undefined);
+  };
+
   const renewSessionForAction = (activeSession: PatientSession) => renewPatientSessionForAction(activeSession, {
     renew: ensurePatientSession,
     onRenewed: setSession,
     onExpired: async () => {
       await clearPatientSession();
+      clearSyncHistory();
       setSession(null);
     },
   });
@@ -127,9 +149,11 @@ export default function App() {
       setVisits(syncedVisits);
       setNotifications(syncedNotifications);
       setLastSyncedAt(Date.now());
+      recordSyncOutcome("SUCCESS");
       return currentSession;
     } catch (error) {
       setSyncError(true);
+      recordSyncOutcome("FAILURE");
       Alert.alert("تعذر التحديث", "تعذر مزامنة بيانات حسابك الآن. تحقّق من الاتصال ثم أعد المحاولة.");
       return null;
     } finally {
@@ -139,7 +163,11 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const storedSession = await loadPatientSession();
+      const [storedSession, storedHistory] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null)]);
+      let parsedHistory: PatientSyncHistoryEntry[] = [];
+      try { parsedHistory = parsePatientSyncHistory(storedHistory ? JSON.parse(storedHistory) : []); } catch { parsedHistory = []; }
+      syncHistoryRef.current = parsedHistory;
+      setSyncHistory(parsedHistory);
       setSession(storedSession);
       setAuthReady(true);
       if (storedSession) await refreshPatientData(storedSession);
@@ -167,6 +195,7 @@ export default function App() {
 
   const signOut = async () => {
     await clearPatientSession();
+    clearSyncHistory();
     setSession(null);
     setSyncError(false);
     setLastSyncedAt(null);
@@ -306,6 +335,7 @@ export default function App() {
             <View style={styles.heroCopy}><Text style={styles.heroTitle}>{session ? "حساب المريض متصل" : "وضع محلي مؤقت"}</Text><Text style={styles.heroText}>{syncStatus}</Text></View>
           </View>
           {session && syncError ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.retryButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="refresh" size={18} color="#A44916" /><Text style={styles.retryButtonText}>إعادة محاولة التحديث</Text></Pressable> : null}
+          {session ? <SyncHistoryCard entries={syncHistory} onClear={clearSyncHistory} /> : null}
           <View style={styles.metricGrid}>
             <MetricCard title="كل الزيارات" value={summary.total} icon="calendar-month" tint="#E6F5F2" />
             <MetricCard title="نشطة" value={summary.active} icon="pending-actions" tint="#FFF4DF" />
@@ -425,6 +455,16 @@ const styles = StyleSheet.create({
   heroText: { color: "#D8F5EC", fontSize: 13, lineHeight: 20, textAlign: "right", marginTop: 4 },
   retryButton: { alignItems: "center", backgroundColor: "#FFF4DF", borderColor: "#F0C98E", borderRadius: 13, borderWidth: 1, flexDirection: "row-reverse", gap: 8, justifyContent: "center", marginTop: 10, minHeight: 44, paddingHorizontal: 14 },
   retryButtonText: { color: "#A44916", fontSize: 13, fontWeight: "800" },
+  syncHistoryCard: { backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 18, borderWidth: 1, marginTop: 12, padding: 15 },
+  syncHistoryHeader: { alignItems: "center", flexDirection: "row-reverse", justifyContent: "space-between" },
+  syncHistoryTitle: { color: "#244C43", fontSize: 14, fontWeight: "800" },
+  clearHistoryButton: { paddingHorizontal: 4, paddingVertical: 3 },
+  clearHistoryButtonText: { color: "#0B776B", fontSize: 12, fontWeight: "800" },
+  syncHistoryRow: { alignItems: "center", borderTopColor: "#E6EFEB", borderTopWidth: 1, flexDirection: "row-reverse", gap: 9, marginTop: 11, paddingTop: 11 },
+  syncHistoryCopy: { flex: 1 },
+  syncHistoryEntryTitle: { color: "#41665D", fontSize: 12, fontWeight: "700", textAlign: "right" },
+  syncHistoryEntryTime: { color: "#8A9E98", fontSize: 11, marginTop: 2, textAlign: "right" },
+  syncHistoryEmpty: { color: "#6B857C", fontSize: 12, lineHeight: 19, marginTop: 11, textAlign: "right" },
   metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 },
   metricCard: { width: "48.5%", backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderWidth: 1, borderRadius: 18, padding: 15 },
   metricIcon: { alignItems: "center", borderRadius: 12, height: 36, justifyContent: "center", width: 36 },
