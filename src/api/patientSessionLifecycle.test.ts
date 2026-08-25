@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renewPatientSessionForAction } from "./patientSessionLifecycle";
+import { PatientSessionFailure } from "./patientSessionErrors";
 
 const expiredSession = { accessToken: "expired-access", refreshToken: "refresh-token", expiresAt: 1 };
 const renewedSession = { accessToken: "fresh-access", refreshToken: "fresh-refresh", expiresAt: 9_999_999_999_999 };
@@ -21,7 +22,7 @@ describe("renewPatientSessionForAction", () => {
 
   it("ينظف جلسة التطبيق عند فشل تدوير رمز التجديد ثم يعيد الخطأ", async () => {
     const onExpired = vi.fn();
-    const failure = new Error("انتهت جلسة الحساب");
+    const failure = new PatientSessionFailure("EXPIRED", "انتهت جلسة الحساب");
 
     await expect(renewPatientSessionForAction(expiredSession, {
       renew: vi.fn().mockRejectedValue(failure),
@@ -30,5 +31,18 @@ describe("renewPatientSessionForAction", () => {
     })).rejects.toThrow("انتهت جلسة الحساب");
 
     expect(onExpired).toHaveBeenCalledTimes(1);
+  });
+
+  it("يحافظ على الجلسة عند تعذر تجديدها مؤقتاً ثم يعيد الخطأ", async () => {
+    const onExpired = vi.fn();
+    const failure = new PatientSessionFailure("TEMPORARY", "تعذر الاتصال مؤقتاً");
+
+    await expect(renewPatientSessionForAction(expiredSession, {
+      renew: vi.fn().mockRejectedValue(failure),
+      onRenewed: vi.fn(),
+      onExpired,
+    })).rejects.toThrow("تعذر الاتصال مؤقتاً");
+
+    expect(onExpired).not.toHaveBeenCalled();
   });
 });

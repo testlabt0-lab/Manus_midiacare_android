@@ -1,4 +1,5 @@
 import type { PatientSession } from "./patientApi";
+import { isPatientSessionExpiredFailure } from "./patientSessionErrors";
 
 type SessionLifecycleOptions = {
   renew: (session: PatientSession) => Promise<PatientSession>;
@@ -16,7 +17,7 @@ export async function renewPatientSessionForAction(session: PatientSession, opti
     await options.onRenewed(renewed);
     return renewed;
   } catch (error) {
-    await options.onExpired();
+    if (isPatientSessionExpiredFailure(error)) await options.onExpired();
     throw error;
   }
 }

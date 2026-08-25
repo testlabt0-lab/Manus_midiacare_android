@@ -2,6 +2,7 @@ import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import { API_ORIGIN, MOBILE_CLIENT_ID, MOBILE_REDIRECT_URI, mapRemotePatientNotification, mapRemoteVisit, type RemotePatientNotification, type RemoteVisit } from "./patientApiShared";
+import { PatientSessionFailure } from "./patientSessionErrors";
 
 export { API_ORIGIN, MOBILE_CLIENT_ID, MOBILE_REDIRECT_URI, mapRemotePatientNotification, mapRemoteVisit } from "./patientApiShared";
 
@@ -104,19 +105,27 @@ export async function startPatientLogin(): Promise<PatientSession> {
 
 export async function ensurePatientSession(session: PatientSession): Promise<PatientSession> {
   if (session.expiresAt > Date.now() + 60_000) return session;
-  const response = await fetch(`${API_ORIGIN}/api/mobile-auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: MOBILE_CLIENT_ID, refresh_token: session.refreshToken }),
-  });
-  const payload = await response.json() as TokenResponse;
-  if (!response.ok) {
-    await clearPatientSession();
-    throw new Error(payload.error || "انتهت جلسة الحساب. سجّل الدخول من جديد.");
+  try {
+    const response = await fetch(`${API_ORIGIN}/api/mobile-auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: MOBILE_CLIENT_ID, refresh_token: session.refreshToken }),
+    });
+    const payload = await response.json() as TokenResponse;
+    if (!response.ok) {
+      if ([400, 401, 403].includes(response.status)) {
+        await clearPatientSession();
+        throw new PatientSessionFailure("EXPIRED", payload.error || "انتهت جلسة الحساب. سجّل الدخول من جديد.");
+      }
+      throw new PatientSessionFailure("TEMPORARY", "تعذر تجديد جلسة الحساب الآن. تحقّق من الاتصال ثم أعد المحاولة.");
+    }
+    const renewed = toSession(payload);
+    await persistPatientSession(renewed);
+    return renewed;
+  } catch (error) {
+    if (error instanceof PatientSessionFailure) throw error;
+    throw new PatientSessionFailure("TEMPORARY", "تعذر تجديد جلسة الحساب الآن. تحقّق من الاتصال ثم أعد المحاولة.");
   }
-  const renewed = toSession(payload);
-  await persistPatientSession(renewed);
-  return renewed;
 }
 
 export async function listPatientVisits(session: PatientSession) {

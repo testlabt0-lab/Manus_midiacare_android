@@ -48,6 +48,7 @@ import {
   type ClinicNotification,
 } from "./src/domain/notifications";
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
+import { isPatientSessionExpiredFailure } from "./src/api/patientSessionErrors";
 import { getPatientConnectionDiagnostic } from "./src/domain/connectionDiagnostics";
 import { shouldRefreshOnAppResume, type AppVisibility } from "./src/domain/foregroundRefresh";
 import { PATIENT_RELEASE_CHECKLIST_PROGRESS_KEY, patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
@@ -57,6 +58,7 @@ import { isReleaseChecklistItemTrackable, parseReleaseChecklistProgress, toggleR
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
 import { filterPatientSyncHistoryByRetention, getPatientSyncHistoryRetentionLabel, isPatientSyncHistoryRetention, patientSyncHistoryRetentions, resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory, type PatientSyncHistoryRetention } from "./src/domain/syncHistoryPrivacy";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
+import { getPatientSessionRestoreStatus, type PatientSessionRestoreState } from "./src/domain/sessionRestoreStatus";
 
 type TabKey = "dashboard" | "visits" | "notifications" | "profile";
 const SYNC_HISTORY_STORAGE_KEY = "medicare_pro_patient_sync_history";
@@ -112,6 +114,7 @@ export default function App() {
   const [notificationSettings, setNotificationSettings] = useState({ appointments: true, medical: true });
   const [session, setSession] = useState<PatientSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [sessionRestoreState, setSessionRestoreState] = useState<PatientSessionRestoreState>("CHECKING");
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -137,6 +140,7 @@ export default function App() {
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
   const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
   const connectionDiagnostic = getPatientConnectionDiagnostic({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt, historyEnabled: syncHistoryEnabled, historyEntryCount: syncHistory.length });
+  const sessionRestoreStatus = getPatientSessionRestoreStatus(sessionRestoreState);
 
   const saveSyncHistory = (entries: PatientSyncHistoryEntry[]) => {
     if (!shouldRecordPatientSyncHistory(syncHistoryEnabledRef.current)) return;
@@ -222,10 +226,11 @@ export default function App() {
       await clearPatientSession();
       clearSyncHistory();
       setSession(null);
+      setSessionRestoreState("EXPIRED");
     },
   });
 
-  const refreshPatientData = async (activeSession: PatientSession) => {
+  const refreshPatientData = async (activeSession: PatientSession, options: { restoring?: boolean; silent?: boolean } = {}) => {
     setSyncing(true);
     setSyncError(false);
     try {
@@ -238,11 +243,14 @@ export default function App() {
       setNotifications(syncedNotifications);
       setLastSyncedAt(Date.now());
       recordSyncOutcome("SUCCESS");
+      if (options.restoring) setSessionRestoreState("RESTORED");
       return currentSession;
     } catch (error) {
-      setSyncError(true);
+      const expired = isPatientSessionExpiredFailure(error);
+      setSyncError(!expired);
       recordSyncOutcome("FAILURE");
-      Alert.alert("تعذر التحديث", "تعذر مزامنة بيانات حسابك الآن. تحقّق من الاتصال ثم أعد المحاولة.");
+      if (options.restoring) setSessionRestoreState(expired ? "EXPIRED" : "OFFLINE");
+      if (!options.silent) Alert.alert(expired ? "انتهت الجلسة" : "تعذر التحديث", expired ? "سجّل الدخول من جديد لربط حساب المريض بأمان." : "تعذر مزامنة بيانات حسابك الآن. تحقّق من الاتصال ثم أعد المحاولة.");
       return null;
     } finally {
       setSyncing(false);
@@ -270,8 +278,9 @@ export default function App() {
       setSyncHistory(visibleHistory);
       if (!historyEnabled || visibleHistory.length !== parsedHistory.length) void AsyncStorage.setItem(SYNC_HISTORY_STORAGE_KEY, JSON.stringify(visibleHistory)).catch(() => undefined);
       setSession(storedSession);
+      setSessionRestoreState(storedSession ? "CHECKING" : "NONE");
       setAuthReady(true);
-      if (storedSession) await refreshPatientData(storedSession);
+      if (storedSession) await refreshPatientData(storedSession, { restoring: true, silent: true });
     })();
   }, []);
 
@@ -297,6 +306,7 @@ export default function App() {
     try {
       const nextSession = await startPatientLogin();
       setSession(nextSession);
+      setSessionRestoreState("RESTORED");
       await refreshPatientData(nextSession);
       if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -310,6 +320,7 @@ export default function App() {
     await clearPatientSession();
     clearSyncHistory();
     setSession(null);
+    setSessionRestoreState("NONE");
     setSyncError(false);
     setLastSyncedAt(null);
     setVisits(items => items.filter(item => item.source !== "REMOTE"));
@@ -518,8 +529,8 @@ export default function App() {
             <View style={styles.infoRow}>
               <MaterialIcons name={session ? "verified-user" : "lock-outline"} size={20} color="#0B776B" />
               <View>
-                <Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : "لم يتم تسجيل الدخول"}</Text>
-                <Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : "سجّل الدخول لمزامنة بيانات حسابك مع تطبيق الويب."}</Text>
+                <Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : sessionRestoreStatus.title}</Text>
+                <Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : sessionRestoreStatus.description}</Text>
               </View>
             </View>
             {session ? <>
