@@ -49,12 +49,13 @@ import {
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
 import { patientPrivacyInformation } from "./src/domain/privacyInfo";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
-import { resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory } from "./src/domain/syncHistoryPrivacy";
+import { filterPatientSyncHistoryByRetention, getPatientSyncHistoryRetentionLabel, isPatientSyncHistoryRetention, patientSyncHistoryRetentions, resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory, type PatientSyncHistoryRetention } from "./src/domain/syncHistoryPrivacy";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
 
 type TabKey = "dashboard" | "visits" | "notifications" | "profile";
 const SYNC_HISTORY_STORAGE_KEY = "medicare_pro_patient_sync_history";
 const SYNC_HISTORY_PREFERENCE_STORAGE_KEY = "medicare_pro_patient_sync_history_enabled";
+const SYNC_HISTORY_RETENTION_STORAGE_KEY = "medicare_pro_patient_sync_history_retention";
 
 function safeHaptic(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS !== "web") {
@@ -111,6 +112,8 @@ export default function App() {
   const syncHistoryRef = useRef<PatientSyncHistoryEntry[]>([]);
   const [syncHistoryEnabled, setSyncHistoryEnabled] = useState(true);
   const syncHistoryEnabledRef = useRef(true);
+  const [syncHistoryRetention, setSyncHistoryRetention] = useState<PatientSyncHistoryRetention>("7_DAYS");
+  const syncHistoryRetentionRef = useRef<PatientSyncHistoryRetention>("7_DAYS");
   const [privacyInfoOpen, setPrivacyInfoOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
@@ -127,7 +130,11 @@ export default function App() {
     setSyncHistory(entries);
     void AsyncStorage.setItem(SYNC_HISTORY_STORAGE_KEY, JSON.stringify(entries)).catch(() => undefined);
   };
-  const recordSyncOutcome = (outcome: PatientSyncOutcome) => saveSyncHistory(appendPatientSyncHistory(syncHistoryRef.current, outcome, Date.now()));
+  const recordSyncOutcome = (outcome: PatientSyncOutcome) => {
+    const now = Date.now();
+    const retainedHistory = filterPatientSyncHistoryByRetention(syncHistoryRef.current, syncHistoryRetentionRef.current, now);
+    saveSyncHistory(appendPatientSyncHistory(retainedHistory, outcome, now));
+  };
   const clearSyncHistory = () => {
     syncHistoryRef.current = [];
     setSyncHistory([]);
@@ -138,6 +145,13 @@ export default function App() {
     setSyncHistoryEnabled(enabled);
     void AsyncStorage.setItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY, enabled ? "true" : "false").catch(() => undefined);
     if (!enabled) clearSyncHistory();
+  };
+  const setSyncHistoryRetentionPreference = (retention: PatientSyncHistoryRetention) => {
+    syncHistoryRetentionRef.current = retention;
+    setSyncHistoryRetention(retention);
+    void AsyncStorage.setItem(SYNC_HISTORY_RETENTION_STORAGE_KEY, retention).catch(() => undefined);
+    const retainedHistory = filterPatientSyncHistoryByRetention(syncHistoryRef.current, retention, Date.now());
+    if (retainedHistory.length !== syncHistoryRef.current.length) saveSyncHistory(retainedHistory);
   };
 
   const renewSessionForAction = (activeSession: PatientSession) => renewPatientSessionForAction(activeSession, {
@@ -176,16 +190,19 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const [storedSession, storedHistory, storedPreference] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null)]);
+      const [storedSession, storedHistory, storedPreference, storedRetention] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_RETENTION_STORAGE_KEY).catch(() => null)]);
       const historyEnabled = storedPreference !== "false";
+      const historyRetention = isPatientSyncHistoryRetention(storedRetention) ? storedRetention : "7_DAYS";
       syncHistoryEnabledRef.current = historyEnabled;
       setSyncHistoryEnabled(historyEnabled);
+      syncHistoryRetentionRef.current = historyRetention;
+      setSyncHistoryRetention(historyRetention);
       let parsedHistory: PatientSyncHistoryEntry[] = [];
       try { parsedHistory = parsePatientSyncHistory(storedHistory ? JSON.parse(storedHistory) : []); } catch { parsedHistory = []; }
-      const visibleHistory = resolvePatientSyncHistoryPreference(historyEnabled, parsedHistory);
+      const visibleHistory = resolvePatientSyncHistoryPreference(historyEnabled, filterPatientSyncHistoryByRetention(parsedHistory, historyRetention, Date.now()));
       syncHistoryRef.current = visibleHistory;
       setSyncHistory(visibleHistory);
-      if (!historyEnabled) void AsyncStorage.removeItem(SYNC_HISTORY_STORAGE_KEY).catch(() => undefined);
+      if (!historyEnabled || visibleHistory.length !== parsedHistory.length) void AsyncStorage.setItem(SYNC_HISTORY_STORAGE_KEY, JSON.stringify(visibleHistory)).catch(() => undefined);
       setSession(storedSession);
       setAuthReady(true);
       if (storedSession) await refreshPatientData(storedSession);
@@ -444,6 +461,7 @@ export default function App() {
           <Text style={styles.sectionTitle}>خصوصية الجهاز</Text>
           <View style={styles.infoCard}>
             <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.infoTitle}>حفظ سجل المزامنة محلياً</Text><Text style={styles.infoCopy}>{syncHistoryEnabled ? "يحفظ الجهاز آخر ثلاث نتائج عامة للمزامنة فقط. يمكنك مسحه أو إيقافه في أي وقت." : "تم إيقاف السجل وحذف نتائجه المحفوظة من هذا الجهاز."}</Text></View><Switch value={syncHistoryEnabled} onValueChange={setSyncHistoryPreference} trackColor={{ false: "#DCE9E4", true: "#8ED8C5" }} thumbColor={syncHistoryEnabled ? "#0B776B" : "#F7FAF8"} /></View>
+            {syncHistoryEnabled ? <><View style={styles.divider} /><Text style={styles.retentionTitle}>مدة احتفاظ سجل المزامنة: {getPatientSyncHistoryRetentionLabel(syncHistoryRetention)}</Text><View style={styles.retentionOptions}>{patientSyncHistoryRetentions.map(retention => <Pressable key={retention} onPress={() => setSyncHistoryRetentionPreference(retention)} style={({ pressed }) => [styles.retentionOption, syncHistoryRetention === retention && styles.retentionOptionSelected, pressed && styles.pressed]}><Text style={[styles.retentionOptionText, syncHistoryRetention === retention && styles.retentionOptionTextSelected]}>{getPatientSyncHistoryRetentionLabel(retention)}</Text></Pressable>)}</View></> : null}
             <View style={styles.divider} />
             <Pressable onPress={() => setPrivacyInfoOpen(true)} style={({ pressed }) => [styles.privacyInfoLink, pressed && styles.pressed]}><MaterialIcons name="privacy-tip" size={18} color="#0B776B" /><Text style={styles.privacyInfoLinkText}>تفاصيل خصوصية البيانات</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
           </View>
@@ -587,6 +605,12 @@ const styles = StyleSheet.create({
   infoCopy: { color: "#6B857C", fontSize: 12, lineHeight: 19, marginTop: 3, textAlign: "right" },
   privacyInfoLink: { alignItems: "center", flexDirection: "row-reverse", gap: 8, justifyContent: "space-between", minHeight: 38 },
   privacyInfoLinkText: { color: "#0B776B", flex: 1, fontSize: 13, fontWeight: "800", textAlign: "right" },
+  retentionTitle: { color: "#41665D", fontSize: 12, fontWeight: "800", textAlign: "right" },
+  retentionOptions: { flexDirection: "row-reverse", gap: 7, marginTop: 10 },
+  retentionOption: { alignItems: "center", borderColor: "#CDE2D9", borderRadius: 10, borderWidth: 1, flex: 1, minHeight: 36, justifyContent: "center", paddingHorizontal: 6 },
+  retentionOptionSelected: { backgroundColor: "#E6F5F2", borderColor: "#0B776B" },
+  retentionOptionText: { color: "#668179", fontSize: 11, fontWeight: "800" },
+  retentionOptionTextSelected: { color: "#0B776B" },
   privacyScreen: { backgroundColor: "#F6FAF8", flex: 1 },
   privacyListContent: { padding: 20, paddingBottom: 32 },
   privacyHeader: { alignItems: "flex-start", flexDirection: "row-reverse", gap: 12 },
