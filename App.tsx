@@ -50,9 +50,10 @@ import {
 import { renewPatientSessionForAction } from "./src/api/patientSessionLifecycle";
 import { getPatientConnectionDiagnostic } from "./src/domain/connectionDiagnostics";
 import { shouldRefreshOnAppResume, type AppVisibility } from "./src/domain/foregroundRefresh";
-import { patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
+import { PATIENT_RELEASE_CHECKLIST_PROGRESS_KEY, patientLocalDataResetMessage, patientLocalStorageKeys } from "./src/domain/localDataReset";
 import { patientPrivacyInformation } from "./src/domain/privacyInfo";
 import { getReleaseChecklistStatusLabel, patientReleaseChecklist, type ReleaseChecklistStatus } from "./src/domain/releaseChecklist";
+import { isReleaseChecklistItemTrackable, parseReleaseChecklistProgress, toggleReleaseChecklistProgress, type ReleaseChecklistProgress } from "./src/domain/releaseChecklistProgress";
 import { appendPatientSyncHistory, getPatientSyncHistoryLabel, parsePatientSyncHistory, type PatientSyncHistoryEntry, type PatientSyncOutcome } from "./src/domain/syncHistory";
 import { filterPatientSyncHistoryByRetention, getPatientSyncHistoryRetentionLabel, isPatientSyncHistoryRetention, patientSyncHistoryRetentions, resolvePatientSyncHistoryPreference, shouldRecordPatientSyncHistory, type PatientSyncHistoryRetention } from "./src/domain/syncHistoryPrivacy";
 import { getPatientSyncStatus } from "./src/domain/syncStatus";
@@ -125,6 +126,8 @@ export default function App() {
   const [privacyInfoOpen, setPrivacyInfoOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [releaseChecklistOpen, setReleaseChecklistOpen] = useState(false);
+  const [releaseChecklistProgress, setReleaseChecklistProgress] = useState<ReleaseChecklistProgress>({});
+  const releaseChecklistProgressRef = useRef<ReleaseChecklistProgress>({});
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
@@ -168,6 +171,15 @@ export default function App() {
     setRefreshOnResume(enabled);
     void AsyncStorage.setItem(REFRESH_ON_RESUME_STORAGE_KEY, enabled ? "true" : "false").catch(() => undefined);
   };
+  const saveReleaseChecklistProgress = (progress: ReleaseChecklistProgress) => {
+    releaseChecklistProgressRef.current = progress;
+    setReleaseChecklistProgress(progress);
+    void AsyncStorage.setItem(PATIENT_RELEASE_CHECKLIST_PROGRESS_KEY, JSON.stringify(progress)).catch(() => undefined);
+  };
+  const toggleReleaseChecklistItem = (itemId: string) => {
+    saveReleaseChecklistProgress(toggleReleaseChecklistProgress(releaseChecklistProgressRef.current, itemId, Date.now()));
+  };
+  const clearReleaseChecklistProgress = () => saveReleaseChecklistProgress({});
   const resetLocalPatientData = async () => {
     await Promise.all([
       clearPatientSession(),
@@ -184,6 +196,8 @@ export default function App() {
     setSyncHistoryEnabled(true);
     setSyncHistoryRetention("7_DAYS");
     setRefreshOnResume(false);
+    releaseChecklistProgressRef.current = {};
+    setReleaseChecklistProgress({});
     setSyncError(false);
     setLastSyncedAt(null);
     setComposerOpen(false);
@@ -237,7 +251,7 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const [storedSession, storedHistory, storedPreference, storedRetention, storedRefreshPreference] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_RETENTION_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(REFRESH_ON_RESUME_STORAGE_KEY).catch(() => null)]);
+      const [storedSession, storedHistory, storedPreference, storedRetention, storedRefreshPreference, storedChecklistProgress] = await Promise.all([loadPatientSession(), AsyncStorage.getItem(SYNC_HISTORY_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_PREFERENCE_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(SYNC_HISTORY_RETENTION_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(REFRESH_ON_RESUME_STORAGE_KEY).catch(() => null), AsyncStorage.getItem(PATIENT_RELEASE_CHECKLIST_PROGRESS_KEY).catch(() => null)]);
       const historyEnabled = storedPreference !== "false";
       const historyRetention = isPatientSyncHistoryRetention(storedRetention) ? storedRetention : "7_DAYS";
       syncHistoryEnabledRef.current = historyEnabled;
@@ -245,6 +259,10 @@ export default function App() {
       syncHistoryRetentionRef.current = historyRetention;
       setSyncHistoryRetention(historyRetention);
       setRefreshOnResume(storedRefreshPreference === "true");
+      let parsedChecklistProgress: ReleaseChecklistProgress = {};
+      try { parsedChecklistProgress = parseReleaseChecklistProgress(storedChecklistProgress ? JSON.parse(storedChecklistProgress) : {}); } catch { parsedChecklistProgress = {}; }
+      releaseChecklistProgressRef.current = parsedChecklistProgress;
+      setReleaseChecklistProgress(parsedChecklistProgress);
       let parsedHistory: PatientSyncHistoryEntry[] = [];
       try { parsedHistory = parsePatientSyncHistory(storedHistory ? JSON.parse(storedHistory) : []); } catch { parsedHistory = []; }
       const visibleHistory = resolvePatientSyncHistoryPreference(historyEnabled, filterPatientSyncHistoryByRetention(parsedHistory, historyRetention, Date.now()));
@@ -608,8 +626,8 @@ export default function App() {
             keyExtractor={item => item.id}
             contentContainerStyle={styles.diagnosticsListContent}
             ListHeaderComponent={<View><View style={styles.diagnosticsHeader}><Pressable onPress={() => setReleaseChecklistOpen(false)} style={({ pressed }) => [styles.privacyCloseIcon, pressed && styles.pressed]} accessibilityLabel="العودة إلى الحساب"><MaterialIcons name="arrow-forward" size={23} color="#0B776B" /></Pressable><View style={styles.privacyHeaderCopy}><Text style={styles.privacyTitle}>تحقق قبل إصدار APK</Text><Text style={styles.privacySubtitle}>قائمة موجزة تحدد ما تم في بيئة التطوير وما يجب اختباره على جهاز Android.</Text></View></View><View style={styles.releaseChecklistNotice}><MaterialIcons name="info-outline" size={20} color="#31584F" /><Text style={styles.releaseChecklistNoticeText}>لا تعني عناصر القائمة أن اختبار الجهاز تم بالفعل. أكمل العناصر المطلوبة على جهاز أو محاكي قبل التوزيع.</Text></View></View>}
-            renderItem={({ item, index }) => <View>{index === 0 || patientReleaseChecklist[index - 1]?.section !== item.section ? <Text style={styles.releaseSectionTitle}>{item.section}</Text> : null}<View style={styles.releaseChecklistItem}><MaterialIcons name={item.status === "VERIFIED" ? "check-circle-outline" : item.status === "DEVICE_REQUIRED" ? "phone-android" : "assignment-late"} size={21} color={item.status === "VERIFIED" ? "#0B776B" : item.status === "DEVICE_REQUIRED" ? "#3B5E9B" : "#A44916"} /><View style={styles.releaseChecklistCopy}><Text style={styles.releaseChecklistTitle}>{item.title}</Text><Text style={styles.releaseChecklistDescription}>{item.description}</Text><Text style={[styles.releaseChecklistStatus, item.status === "VERIFIED" ? styles.releaseChecklistStatusVerified : item.status === "DEVICE_REQUIRED" ? styles.releaseChecklistStatusDevice : styles.releaseChecklistStatusRelease]}>{getReleaseChecklistStatusLabel(item.status as ReleaseChecklistStatus)}</Text></View></View></View>}
-            ListFooterComponent={<Pressable onPress={() => setReleaseChecklistOpen(false)} style={({ pressed }) => [styles.primaryButton, styles.diagnosticsAction, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>العودة إلى الحساب</Text></Pressable>}
+            renderItem={({ item, index }) => { const trackable = isReleaseChecklistItemTrackable(item); const completedAt = releaseChecklistProgress[item.id]; const isCompleted = Boolean(completedAt); return <View>{index === 0 || patientReleaseChecklist[index - 1]?.section !== item.section ? <Text style={styles.releaseSectionTitle}>{item.section}</Text> : null}<Pressable disabled={!trackable} onPress={() => toggleReleaseChecklistItem(item.id)} style={({ pressed }) => [styles.releaseChecklistItem, trackable && styles.releaseChecklistItemTrackable, isCompleted && styles.releaseChecklistItemCompleted, pressed && trackable && styles.pressed]}><MaterialIcons name={isCompleted ? "check-circle" : item.status === "VERIFIED" ? "check-circle-outline" : item.status === "DEVICE_REQUIRED" ? "phone-android" : "assignment-late"} size={21} color={isCompleted || item.status === "VERIFIED" ? "#0B776B" : item.status === "DEVICE_REQUIRED" ? "#3B5E9B" : "#A44916"} /><View style={styles.releaseChecklistCopy}><Text style={styles.releaseChecklistTitle}>{item.title}</Text><Text style={styles.releaseChecklistDescription}>{item.description}</Text><Text style={[styles.releaseChecklistStatus, isCompleted || item.status === "VERIFIED" ? styles.releaseChecklistStatusVerified : item.status === "DEVICE_REQUIRED" ? styles.releaseChecklistStatusDevice : styles.releaseChecklistStatusRelease]}>{isCompleted ? `تأشير محلي: ${new Date(completedAt).toLocaleDateString("ar-SA")}` : getReleaseChecklistStatusLabel(item.status as ReleaseChecklistStatus)}</Text>{trackable ? <Text style={styles.releaseChecklistHint}>{isCompleted ? "اضغط لإلغاء التأشير المحلي" : "اضغط بعد إكمال الاختبار على جهازك"}</Text> : null}</View></Pressable></View>; }}
+            ListFooterComponent={<View>{Object.keys(releaseChecklistProgress).length ? <Pressable onPress={clearReleaseChecklistProgress} style={({ pressed }) => [styles.releaseChecklistReset, pressed && styles.pressed]}><Text style={styles.releaseChecklistResetText}>إعادة ضبط التأشير المحلي</Text></Pressable> : null}<Pressable onPress={() => setReleaseChecklistOpen(false)} style={({ pressed }) => [styles.primaryButton, styles.diagnosticsAction, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>العودة إلى الحساب</Text></Pressable></View>}
             showsVerticalScrollIndicator={false}
           />
         </SafeAreaView>
@@ -742,6 +760,8 @@ const styles = StyleSheet.create({
   releaseChecklistNoticeText: { color: "#31584F", flex: 1, fontSize: 12, lineHeight: 19, textAlign: "right" },
   releaseSectionTitle: { color: "#244C43", fontSize: 15, fontWeight: "800", marginTop: 20, textAlign: "right" },
   releaseChecklistItem: { alignItems: "flex-start", backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderRadius: 16, borderWidth: 1, flexDirection: "row-reverse", gap: 11, marginTop: 10, padding: 15 },
+  releaseChecklistItemTrackable: { borderColor: "#BEDBD0" },
+  releaseChecklistItemCompleted: { backgroundColor: "#F0FBF6", borderColor: "#71BFA8" },
   releaseChecklistCopy: { flex: 1 },
   releaseChecklistTitle: { color: "#244C43", fontSize: 13, fontWeight: "800", textAlign: "right" },
   releaseChecklistDescription: { color: "#668179", fontSize: 12, lineHeight: 19, marginTop: 4, textAlign: "right" },
@@ -749,6 +769,9 @@ const styles = StyleSheet.create({
   releaseChecklistStatusVerified: { backgroundColor: "#E6F5F2", color: "#0B776B" },
   releaseChecklistStatusDevice: { backgroundColor: "#EAF0FC", color: "#3B5E9B" },
   releaseChecklistStatusRelease: { backgroundColor: "#FFF4DF", color: "#A44916" },
+  releaseChecklistHint: { color: "#6B857C", fontSize: 10, marginTop: 7, textAlign: "right" },
+  releaseChecklistReset: { alignItems: "center", borderColor: "#CDE2D9", borderRadius: 12, borderWidth: 1, justifyContent: "center", marginTop: 20, minHeight: 44 },
+  releaseChecklistResetText: { color: "#41665D", fontSize: 13, fontWeight: "800" },
   syncStatusRow: { alignItems: "center", flexDirection: "row-reverse", gap: 8 },
   profileSyncButton: { flex: 0, flexDirection: "row-reverse", gap: 7, marginTop: 14, paddingHorizontal: 12 },
   switchRow: { alignItems: "center", flexDirection: "row-reverse", gap: 12, justifyContent: "space-between" },

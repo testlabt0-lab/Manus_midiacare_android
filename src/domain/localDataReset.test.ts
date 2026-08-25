@@ -3,7 +3,7 @@ import { patientLocalDataResetMessage, patientLocalStorageKeys } from "./localDa
 
 describe("حذف بيانات المريض المحلية", () => {
   it("يحدد مفاتيح التخزين المحلية فقط من دون أي مسار خادمي", () => {
-    expect(patientLocalStorageKeys).toHaveLength(3);
+    expect(patientLocalStorageKeys).toHaveLength(4);
     expect(patientLocalStorageKeys.every(key => key.startsWith("medicare_pro_patient_"))).toBe(true);
     expect(patientLocalStorageKeys.join(" ")).not.toContain("api/");
   });
