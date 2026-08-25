@@ -38,6 +38,7 @@ import {
   getUpcomingVisit,
   getVisitSummary,
   patientVisitFilterLabel,
+  searchPatientVisits,
   type ClinicVisit,
   type PatientVisitFilter,
   type VisitStatus,
@@ -115,6 +116,7 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("dashboard");
   const [visits, setVisits] = useState<ClinicVisit[]>([]);
   const [visitFilter, setVisitFilter] = useState<PatientVisitFilter>("ALL");
+  const [visitSearchQuery, setVisitSearchQuery] = useState("");
   const [notifications, setNotifications] = useState<ClinicNotification[]>([]);
   const [notificationSettings, setNotificationSettings] = useState({ appointments: true, medical: true });
   const [session, setSession] = useState<PatientSession | null>(null);
@@ -389,7 +391,7 @@ export default function App() {
     setVisits(items => items.map(visit => visit.id === id ? next : visit));
   };
 
-  const visibleVisits = useMemo(() => filterPatientVisits(visits, visitFilter), [visits, visitFilter]);
+  const visibleVisits = useMemo(() => searchPatientVisits(filterPatientVisits(visits, visitFilter), visitSearchQuery), [visits, visitFilter, visitSearchQuery]);
 
   const addMedicalInfoNotice = () => {
     if (!notificationSettings.medical) {
@@ -497,8 +499,8 @@ export default function App() {
       keyExtractor={item => item.id}
       renderItem={renderVisit}
       contentContainerStyle={[styles.listContent, styles.screenPadding, visibleVisits.length === 0 && styles.grow]}
-      ListHeaderComponent={<View><View style={styles.listHeader}><View><Text style={styles.pageTitle}>زياراتي</Text><Text style={styles.pageCopy}>{session ? syncStatus : "هذه سجلات محلية؛ سجّل الدخول لمزامنتها مع حسابك."}</Text></View><View style={styles.listHeaderActions}>{session ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.iconAction, styles.syncAction, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={20} color="#0B776B" /></Pressable> : null}<Pressable onPress={openComposer} style={({ pressed }) => [styles.iconAction, pressed && styles.pressed]}><MaterialIcons name="add" size={24} color="#FFFFFF" /></Pressable></View></View><View style={styles.visitFilterRow}>{(["ALL", "ACTIVE", "COMPLETED", "CANCELLED"] as PatientVisitFilter[]).map(filter => <Pressable key={filter} onPress={() => setVisitFilter(filter)} style={({ pressed }) => [styles.visitFilterButton, visitFilter === filter && styles.visitFilterButtonSelected, pressed && styles.pressed]}><Text style={[styles.visitFilterText, visitFilter === filter && styles.visitFilterTextSelected]}>{patientVisitFilterLabel[filter]}</Text></Pressable>)}</View></View>}
-      ListEmptyComponent={<EmptyState icon="calendar-month" title={visitFilter === "ALL" ? "لا توجد زيارات بعد" : `لا توجد زيارات ${patientVisitFilterLabel[visitFilter]} الآن`} copy={visitFilter === "ALL" ? (session ? "لا توجد زيارات مرتبطة بحسابك حالياً." : "أضف زيارة محلية أو سجّل الدخول للبحث في حسابك.") : "غيّر المرشح لعرض فئات الزيارات الأخرى أو أضف زيارة جديدة."} actionLabel="إضافة زيارة" onAction={openComposer} />}
+      ListHeaderComponent={<View><View style={styles.listHeader}><View><Text style={styles.pageTitle}>زياراتي</Text><Text style={styles.pageCopy}>{session ? syncStatus : "هذه سجلات محلية؛ سجّل الدخول لمزامنتها مع حسابك."}</Text></View><View style={styles.listHeaderActions}>{session ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.iconAction, styles.syncAction, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={20} color="#0B776B" /></Pressable> : null}<Pressable onPress={openComposer} style={({ pressed }) => [styles.iconAction, pressed && styles.pressed]}><MaterialIcons name="add" size={24} color="#FFFFFF" /></Pressable></View></View><TextInput value={visitSearchQuery} onChangeText={setVisitSearchQuery} placeholder="ابحث باسم العيادة أو نوع الخدمة" placeholderTextColor="#8BA49D" style={styles.visitSearchInput} textAlign="right" returnKeyType="search" /><View style={styles.visitFilterRow}>{(["ALL", "ACTIVE", "COMPLETED", "CANCELLED"] as PatientVisitFilter[]).map(filter => <Pressable key={filter} onPress={() => setVisitFilter(filter)} style={({ pressed }) => [styles.visitFilterButton, visitFilter === filter && styles.visitFilterButtonSelected, pressed && styles.pressed]}><Text style={[styles.visitFilterText, visitFilter === filter && styles.visitFilterTextSelected]}>{patientVisitFilterLabel[filter]}</Text></Pressable>)}</View></View>}
+      ListEmptyComponent={<EmptyState icon="calendar-month" title={visitSearchQuery.trim() ? "لا توجد زيارات مطابقة" : visitFilter === "ALL" ? "لا توجد زيارات بعد" : `لا توجد زيارات ${patientVisitFilterLabel[visitFilter]} الآن`} copy={visitSearchQuery.trim() ? "جرّب كتابة اسم عيادة أو نوع خدمة مختلف، أو أزل البحث." : visitFilter === "ALL" ? (session ? "لا توجد زيارات مرتبطة بحسابك حالياً." : "أضف زيارة محلية أو سجّل الدخول للبحث في حسابك.") : "غيّر المرشح لعرض فئات الزيارات الأخرى أو أضف زيارة جديدة."} actionLabel="إضافة زيارة" onAction={openComposer} />}
       showsVerticalScrollIndicator={false}
     />
   );
@@ -713,6 +715,7 @@ const styles = StyleSheet.create({
   listHeader: { alignItems: "flex-start", flexDirection: "row-reverse", justifyContent: "space-between", marginBottom: 18 },
   listHeaderActions: { flexDirection: "row-reverse", gap: 8, marginTop: 6 },
   visitFilterRow: { flexDirection: "row-reverse", gap: 7, marginBottom: 16, marginTop: -8 },
+  visitSearchInput: { backgroundColor: "#FFFFFF", borderColor: "#CDE2D9", borderRadius: 13, borderWidth: 1, color: "#244C43", fontSize: 13, marginBottom: 15, minHeight: 44, paddingHorizontal: 13 },
   visitFilterButton: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#CDE2D9", borderRadius: 11, borderWidth: 1, flex: 1, justifyContent: "center", minHeight: 36, paddingHorizontal: 5 },
   visitFilterButtonSelected: { backgroundColor: "#E6F5F2", borderColor: "#0B776B" },
   visitFilterText: { color: "#668179", fontSize: 11, fontWeight: "800" },

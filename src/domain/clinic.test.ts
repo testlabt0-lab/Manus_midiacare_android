@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceVisit, createLocalVisit, filterPatientVisits, getUpcomingVisit, getVisitSummary } from "./clinic";
+import { advanceVisit, createLocalVisit, filterPatientVisits, getUpcomingVisit, getVisitSummary, searchPatientVisits } from "./clinic";
 
 describe("clinic visit workflow", () => {
   it("creates a new local clinic visit with the requested initial status", () => {
@@ -66,5 +66,16 @@ describe("clinic visit workflow", () => {
     expect(filterPatientVisits(visits, "COMPLETED").map(visit => visit.id)).toEqual(["completed"]);
     expect(filterPatientVisits(visits, "CANCELLED").map(visit => visit.id)).toEqual(["cancelled"]);
     expect(filterPatientVisits(visits, "ALL")).toBe(visits);
+  });
+
+  it("searches the local visit collection by clinic name or service type", () => {
+    const visits = [
+      { id: "home", clinicName: "عيادة الروضة", serviceName: "زيارة منزلية", status: "REQUESTED" as const, createdAt: 1 },
+      { id: "follow-up", clinicName: "مركز الحياة", serviceName: "متابعة", status: "COMPLETED" as const, createdAt: 2 },
+    ];
+
+    expect(searchPatientVisits(filterPatientVisits(visits, "ACTIVE"), "  منزلية ").map(visit => visit.id)).toEqual(["home"]);
+    expect(searchPatientVisits(visits, "الحياة").map(visit => visit.id)).toEqual(["follow-up"]);
+    expect(searchPatientVisits(visits, "")).toBe(visits);
   });
 });

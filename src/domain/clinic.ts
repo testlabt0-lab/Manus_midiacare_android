@@ -84,3 +84,9 @@ export function filterPatientVisits(visits: ClinicVisit[], filter: PatientVisitF
   if (filter === "ACTIVE") return visits.filter(visit => visit.status !== "COMPLETED" && visit.status !== "CANCELLED");
   return visits.filter(visit => visit.status === filter);
 }
+
+export function searchPatientVisits(visits: ClinicVisit[], query: string): ClinicVisit[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase("ar-SA");
+  if (!normalizedQuery) return visits;
+  return visits.filter(visit => [visit.clinicName, visit.serviceName].some(value => value.toLocaleLowerCase("ar-SA").includes(normalizedQuery)));
+}
