@@ -39,6 +39,7 @@ import {
   getVisitSummary,
   patientVisitFilterLabel,
   searchPatientVisits,
+  sortPatientVisits,
   type ClinicVisit,
   type PatientVisitFilter,
   type VisitStatus,
@@ -391,7 +392,7 @@ export default function App() {
     setVisits(items => items.map(visit => visit.id === id ? next : visit));
   };
 
-  const visibleVisits = useMemo(() => searchPatientVisits(filterPatientVisits(visits, visitFilter), visitSearchQuery), [visits, visitFilter, visitSearchQuery]);
+  const visibleVisits = useMemo(() => sortPatientVisits(searchPatientVisits(filterPatientVisits(visits, visitFilter), visitSearchQuery)), [visits, visitFilter, visitSearchQuery]);
 
   const addMedicalInfoNotice = () => {
     if (!notificationSettings.medical) {

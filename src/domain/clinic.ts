@@ -90,3 +90,14 @@ export function searchPatientVisits(visits: ClinicVisit[], query: string): Clini
   if (!normalizedQuery) return visits;
   return visits.filter(visit => [visit.clinicName, visit.serviceName].some(value => value.toLocaleLowerCase("ar-SA").includes(normalizedQuery)));
 }
+
+export function sortPatientVisits(visits: ClinicVisit[], now = Date.now()): ClinicVisit[] {
+  const isFutureScheduled = (visit: ClinicVisit) => typeof visit.scheduledStart === "number" && Number.isFinite(visit.scheduledStart) && visit.scheduledStart >= now;
+  return [...visits].sort((left, right) => {
+    const leftIsUpcoming = isFutureScheduled(left);
+    const rightIsUpcoming = isFutureScheduled(right);
+    if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1;
+    if (leftIsUpcoming && rightIsUpcoming) return (left.scheduledStart as number) - (right.scheduledStart as number);
+    return right.createdAt - left.createdAt;
+  });
+}
