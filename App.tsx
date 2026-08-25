@@ -95,6 +95,7 @@ export default function App() {
   const [session, setSession] = useState<PatientSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [clinicName, setClinicName] = useState("");
@@ -103,7 +104,7 @@ export default function App() {
   const [scheduledStart, setScheduledStart] = useState("");
   const summary = useMemo(() => getVisitSummary(visits), [visits]);
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
-  const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, lastSyncedAt });
+  const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
 
   const renewSessionForAction = (activeSession: PatientSession) => renewPatientSessionForAction(activeSession, {
     renew: ensurePatientSession,
@@ -116,6 +117,7 @@ export default function App() {
 
   const refreshPatientData = async (activeSession: PatientSession) => {
     setSyncing(true);
+    setSyncError(false);
     try {
       const currentSession = await renewSessionForAction(activeSession);
       const [syncedVisits, syncedNotifications] = await Promise.all([
@@ -127,7 +129,8 @@ export default function App() {
       setLastSyncedAt(Date.now());
       return currentSession;
     } catch (error) {
-      Alert.alert("تعذر التحديث", error instanceof Error ? error.message : "تحقق من اتصالك ثم حاول مرة أخرى.");
+      setSyncError(true);
+      Alert.alert("تعذر التحديث", "تعذر مزامنة بيانات حسابك الآن. تحقّق من الاتصال ثم أعد المحاولة.");
       return null;
     } finally {
       setSyncing(false);
@@ -165,6 +168,7 @@ export default function App() {
   const signOut = async () => {
     await clearPatientSession();
     setSession(null);
+    setSyncError(false);
     setLastSyncedAt(null);
     setVisits(items => items.filter(item => item.source !== "REMOTE"));
     setTab("dashboard");
@@ -301,6 +305,7 @@ export default function App() {
             <View style={styles.heroIcon}><MaterialIcons name="local-hospital" size={28} color="#FFFFFF" /></View>
             <View style={styles.heroCopy}><Text style={styles.heroTitle}>{session ? "حساب المريض متصل" : "وضع محلي مؤقت"}</Text><Text style={styles.heroText}>{syncStatus}</Text></View>
           </View>
+          {session && syncError ? <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.retryButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="refresh" size={18} color="#A44916" /><Text style={styles.retryButtonText}>إعادة محاولة التحديث</Text></Pressable> : null}
           <View style={styles.metricGrid}>
             <MetricCard title="كل الزيارات" value={summary.total} icon="calendar-month" tint="#E6F5F2" />
             <MetricCard title="نشطة" value={summary.active} icon="pending-actions" tint="#FFF4DF" />
@@ -418,6 +423,8 @@ const styles = StyleSheet.create({
   heroCopy: { flex: 1 },
   heroTitle: { color: "#FFFFFF", fontSize: 18, fontWeight: "800", textAlign: "right" },
   heroText: { color: "#D8F5EC", fontSize: 13, lineHeight: 20, textAlign: "right", marginTop: 4 },
+  retryButton: { alignItems: "center", backgroundColor: "#FFF4DF", borderColor: "#F0C98E", borderRadius: 13, borderWidth: 1, flexDirection: "row-reverse", gap: 8, justifyContent: "center", marginTop: 10, minHeight: 44, paddingHorizontal: 14 },
+  retryButtonText: { color: "#A44916", fontSize: 13, fontWeight: "800" },
   metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 },
   metricCard: { width: "48.5%", backgroundColor: "#FFFFFF", borderColor: "#DCEAE5", borderWidth: 1, borderRadius: 18, padding: 15 },
   metricIcon: { alignItems: "center", borderRadius: 12, height: 36, justifyContent: "center", width: 36 },

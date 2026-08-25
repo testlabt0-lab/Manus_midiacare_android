@@ -1,13 +1,15 @@
 export type PatientSyncStatusInput = {
   isConnected: boolean;
   isSyncing: boolean;
+  hasError?: boolean;
   lastSyncedAt: number | null;
   now?: number;
 };
 
-export function getPatientSyncStatus({ isConnected, isSyncing, lastSyncedAt, now = Date.now() }: PatientSyncStatusInput) {
+export function getPatientSyncStatus({ isConnected, isSyncing, hasError = false, lastSyncedAt, now = Date.now() }: PatientSyncStatusInput) {
   if (!isConnected) return "سجّل الدخول لمزامنة بيانات حسابك.";
   if (isSyncing) return "جارٍ تحديث الزيارات والتنبيهات المصرح بها…";
+  if (hasError) return "تعذر تحديث بيانات الحساب. تحقّق من الاتصال ثم أعد المحاولة.";
   if (!lastSyncedAt) return "لم تتم مزامنة بيانات الحساب بعد.";
 
   const elapsedMinutes = Math.max(0, Math.floor((now - lastSyncedAt) / 60_000));
