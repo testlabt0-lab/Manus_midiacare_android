@@ -1,4 +1,5 @@
 import { getPatientSyncStatus } from "./syncStatus";
+import type { PatientSessionRestoreState } from "./sessionRestoreStatus";
 
 export type DiagnosticTone = "OK" | "ATTENTION" | "NEUTRAL";
 
@@ -9,6 +10,7 @@ export type PatientConnectionDiagnosticInput = {
   lastSyncedAt: number | null;
   historyEnabled: boolean;
   historyEntryCount: number;
+  sessionRestoreState?: PatientSessionRestoreState;
   now?: number;
 };
 
@@ -21,11 +23,14 @@ export type PatientConnectionDiagnostic = {
 
 export function getPatientConnectionDiagnostic(input: PatientConnectionDiagnosticInput): PatientConnectionDiagnostic {
   const syncStatus = getPatientSyncStatus(input);
+  const restorationTemporarilyUnavailable = input.sessionRestoreState === "OFFLINE";
   const connectedTone: DiagnosticTone = input.isConnected ? "OK" : "ATTENTION";
   const syncTone: DiagnosticTone = input.hasError ? "ATTENTION" : input.isConnected ? "OK" : "NEUTRAL";
   const overall = !input.isConnected
     ? { overallTitle: "يلزم تسجيل الدخول", overallDescription: "سجّل الدخول لربط بيانات المريض المصرح بها ومزامنتها.", tone: "ATTENTION" as const }
-    : input.hasError
+    : restorationTemporarilyUnavailable
+      ? { overallTitle: "تعذر التحقق من الجلسة الآن", overallDescription: "احتفظ التطبيق بالجلسة محلياً؛ تحقّق من الاتصال ثم أعد محاولة التحقق.", tone: "ATTENTION" as const }
+      : input.hasError
       ? { overallTitle: "تحتاج المزامنة إلى إعادة محاولة", overallDescription: "تحقّق من الاتصال ثم حدّث بيانات الحساب من التطبيق.", tone: "ATTENTION" as const }
       : input.isSyncing
         ? { overallTitle: "يُجرى تحديث الحساب", overallDescription: "يجري تحديث الزيارات والتنبيهات المصرح بها الآن.", tone: "NEUTRAL" as const }
@@ -34,7 +39,7 @@ export function getPatientConnectionDiagnostic(input: PatientConnectionDiagnosti
   return {
     ...overall,
     checks: [
-      { label: "حالة الحساب", value: input.isConnected ? "حساب المريض متصل" : "لم يتم تسجيل الدخول", tone: connectedTone },
+      { label: "حالة الحساب", value: !input.isConnected ? "لم يتم تسجيل الدخول" : restorationTemporarilyUnavailable ? "الجلسة محفوظة وتحتاج إعادة محاولة" : "حساب المريض متصل", tone: restorationTemporarilyUnavailable ? "ATTENTION" : connectedTone },
       { label: "حالة المزامنة", value: syncStatus, tone: syncTone },
       { label: "سجل المزامنة المحلي", value: input.historyEnabled ? `مفعّل: ${input.historyEntryCount} نتيجة عامة محفوظة` : "متوقف على هذا الجهاز", tone: input.historyEnabled ? "OK" : "NEUTRAL" },
     ],

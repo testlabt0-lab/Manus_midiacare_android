@@ -139,7 +139,7 @@ export default function App() {
   const summary = useMemo(() => getVisitSummary(visits), [visits]);
   const unreadNotifications = useMemo(() => countUnreadNotifications(notifications), [notifications]);
   const syncStatus = getPatientSyncStatus({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt });
-  const connectionDiagnostic = getPatientConnectionDiagnostic({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt, historyEnabled: syncHistoryEnabled, historyEntryCount: syncHistory.length });
+  const connectionDiagnostic = getPatientConnectionDiagnostic({ isConnected: Boolean(session), isSyncing: syncing, hasError: syncError, lastSyncedAt, historyEnabled: syncHistoryEnabled, historyEntryCount: syncHistory.length, sessionRestoreState });
   const sessionRestoreStatus = getPatientSessionRestoreStatus(sessionRestoreState);
 
   const saveSyncHistory = (entries: PatientSyncHistoryEntry[]) => {
@@ -243,7 +243,7 @@ export default function App() {
       setNotifications(syncedNotifications);
       setLastSyncedAt(Date.now());
       recordSyncOutcome("SUCCESS");
-      if (options.restoring) setSessionRestoreState("RESTORED");
+      setSessionRestoreState("RESTORED");
       return currentSession;
     } catch (error) {
       const expired = isPatientSessionExpiredFailure(error);
@@ -527,16 +527,16 @@ export default function App() {
           <Text style={styles.pageCopy}>تطبيق مريض مستقل لأندرويد مرتبط بخدمة MediCare Pro Web.</Text>
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
-              <MaterialIcons name={session ? "verified-user" : "lock-outline"} size={20} color="#0B776B" />
+              <MaterialIcons name={sessionRestoreState === "OFFLINE" ? "sync-problem" : session ? "verified-user" : "lock-outline"} size={20} color={sessionRestoreState === "OFFLINE" ? "#A44916" : "#0B776B"} />
               <View>
-                <Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : sessionRestoreStatus.title}</Text>
-                <Text style={styles.infoCopy}>{session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : sessionRestoreStatus.description}</Text>
+                <Text style={styles.infoTitle}>{sessionRestoreState === "OFFLINE" ? sessionRestoreStatus.title : session ? "حساب المريض متصل" : sessionRestoreStatus.title}</Text>
+                <Text style={styles.infoCopy}>{sessionRestoreState === "OFFLINE" ? sessionRestoreStatus.description : session ? "تُجدّد جلسة الحساب تلقائياً برمز دوار محفوظ في تخزين الجهاز الآمن." : sessionRestoreStatus.description}</Text>
               </View>
             </View>
             {session ? <>
               <View style={styles.divider} />
-              <View style={styles.syncStatusRow}><MaterialIcons name="sync" size={18} color="#0B776B" /><Text style={styles.infoCopy}>{syncStatus}</Text></View>
-              <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, styles.profileSyncButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>تحديث بيانات الحساب</Text></Pressable>
+              <View style={styles.syncStatusRow}><MaterialIcons name={sessionRestoreState === "OFFLINE" ? "sync-problem" : "sync"} size={18} color={sessionRestoreState === "OFFLINE" ? "#A44916" : "#0B776B"} /><Text style={styles.infoCopy}>{sessionRestoreState === "OFFLINE" ? sessionRestoreStatus.description : syncStatus}</Text></View>
+              <Pressable onPress={refreshAccount} disabled={syncing} style={({ pressed }) => [styles.compactSecondary, styles.profileSyncButton, syncing && styles.disabledButton, pressed && styles.pressed]}><MaterialIcons name="sync" size={17} color="#41665D" /><Text style={styles.compactSecondaryText}>{sessionRestoreState === "OFFLINE" ? "إعادة محاولة استعادة الجلسة" : "تحديث بيانات الحساب"}</Text></Pressable>
             </> : null}
             <View style={styles.divider} />
             <Pressable onPress={() => setDiagnosticsOpen(true)} style={({ pressed }) => [styles.diagnosticsLink, pressed && styles.pressed]}><MaterialIcons name="network-check" size={18} color="#0B776B" /><Text style={styles.diagnosticsLinkText}>فحص الاتصال والمزامنة</Text><MaterialIcons name="arrow-back" size={17} color="#0B776B" /></Pressable>
