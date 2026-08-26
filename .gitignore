@@ -31,7 +31,11 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# Android SDK path generated per workstation
+android/local.properties
 
 # typescript
 *.tsbuildinfo

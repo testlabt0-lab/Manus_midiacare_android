@@ -1,7 +1,24 @@
 import type { ClinicVisit, VisitStatus } from "../domain/clinic";
 import type { ClinicNotification } from "../domain/notifications";
 
-export const API_ORIGIN = "https://medicarepro-myvdwgyk.manus.space";
+export const DEFAULT_API_ORIGIN = "https://medicarepro-myvdwgyk.manus.space";
+
+export function resolveApiOrigin(configuredOrigin?: string) {
+  const candidate = configuredOrigin?.trim();
+  if (!candidate) return DEFAULT_API_ORIGIN;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "https:" || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+      return DEFAULT_API_ORIGIN;
+    }
+    return parsed.origin;
+  } catch {
+    return DEFAULT_API_ORIGIN;
+  }
+}
+
+export const API_ORIGIN = resolveApiOrigin(process.env.EXPO_PUBLIC_API_ORIGIN);
 export const MOBILE_REDIRECT_URI = "medicarepro://auth";
 export const MOBILE_CLIENT_ID = "medicare-pro-mobile-android";
 

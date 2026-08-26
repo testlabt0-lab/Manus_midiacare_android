@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { API_ORIGIN, MOBILE_CLIENT_ID, MOBILE_REDIRECT_URI, mapRemotePatientNotification, mapRemoteVisit } from "./patientApiShared";
+import { API_ORIGIN, DEFAULT_API_ORIGIN, MOBILE_CLIENT_ID, MOBILE_REDIRECT_URI, mapRemotePatientNotification, mapRemoteVisit, resolveApiOrigin } from "./patientApiShared";
 
 describe("patient API mapping", () => {
-  it("uses the deployed MediCare Pro origin and constrained Android callback URI", () => {
-    expect(API_ORIGIN).toBe("https://medicarepro-myvdwgyk.manus.space");
+  it("uses the deployed MediCare Pro fallback origin and constrained Android callback URI", () => {
+    expect(API_ORIGIN).toBe(DEFAULT_API_ORIGIN);
+    expect(DEFAULT_API_ORIGIN).toBe("https://medicarepro-myvdwgyk.manus.space");
     expect(MOBILE_CLIENT_ID).toBe("medicare-pro-mobile-android");
     expect(MOBILE_REDIRECT_URI).toBe("medicarepro://auth");
+  });
+
+  it("accepts a secure configured origin and rejects malformed or path-based values", () => {
+    expect(resolveApiOrigin("https://staging.medicarepro.example")).toBe("https://staging.medicarepro.example");
+    expect(resolveApiOrigin("https://staging.medicarepro.example/")).toBe("https://staging.medicarepro.example");
+    expect(resolveApiOrigin("http://staging.medicarepro.example")).toBe(DEFAULT_API_ORIGIN);
+    expect(resolveApiOrigin("https://staging.medicarepro.example/api")).toBe(DEFAULT_API_ORIGIN);
+    expect(resolveApiOrigin("not a URL")).toBe(DEFAULT_API_ORIGIN);
   });
 
   it("maps a patient-owned web visit to the mobile UI shape", () => {
