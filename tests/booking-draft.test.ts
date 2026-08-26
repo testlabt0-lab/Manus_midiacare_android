@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isBookingDraft } from "../lib/booking-draft";
+import { formatBookingDraftUpdatedAt, isBookingDraft } from "../lib/booking-draft";
 
 describe("مسودة الحجز", () => {
   it("تقبل تفضيلات حجز سليمة فقط", () => {
@@ -13,5 +13,11 @@ describe("مسودة الحجز", () => {
 
   it("لا تطابق أي بيانات تفتقد حقلاً من حقول المسودة", () => {
     expect(isBookingDraft({ step: 1, service: "طب عام" })).toBe(false);
+  });
+
+  it("يعرض وقت الحفظ القريب بصياغة عربية واضحة", () => {
+    const now = Date.UTC(2026, 7, 26, 12, 0, 0);
+    expect(formatBookingDraftUpdatedAt(now, now)).toBe("حُفظت المسودة الآن");
+    expect(formatBookingDraftUpdatedAt(now - 5 * 60_000, now)).toBe("حُفظت المسودة قبل 5 دقيقة");
   });
 });

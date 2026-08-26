@@ -23,6 +23,15 @@ export function isBookingDraft(value: unknown): value is BookingDraft {
     && typeof draft.savedAt === "number";
 }
 
+export function formatBookingDraftUpdatedAt(savedAt: number, now = Date.now()): string {
+  const elapsedMinutes = Math.max(0, Math.floor((now - savedAt) / 60_000));
+  if (elapsedMinutes === 0) return "حُفظت المسودة الآن";
+  if (elapsedMinutes < 60) return `حُفظت المسودة قبل ${elapsedMinutes} دقيقة`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `حُفظت المسودة قبل ${elapsedHours} ساعة`;
+  return `آخر حفظ: ${new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(savedAt))}`;
+}
+
 export async function loadBookingDraft(): Promise<BookingDraft | null> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
