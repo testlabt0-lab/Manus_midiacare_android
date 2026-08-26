@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 import { useMediCare } from "@/lib/medicare-store";
 
@@ -14,17 +15,32 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [districtLabel, setDistrictLabel] = useState("");
-  const [visitDate, setVisitDate] = useState("");
-  const [visitTime, setVisitTime] = useState("");
+  const [selectedAt, setSelectedAt] = useState(() => new Date(Date.now() + 2 * 60 * 60 * 1000));
+  const [pickerMode, setPickerMode] = useState<"date" | "time" | null>(null);
   const [error, setError] = useState("");
 
-  const scheduledStart = visitDate && visitTime ? `${visitDate}T${visitTime}` : "";
+  const scheduledStart = selectedAt.toISOString();
+  const dateLabel = new Intl.DateTimeFormat("ar-SA", { weekday: "short", day: "numeric", month: "long", year: "numeric" }).format(selectedAt);
+  const timeLabel = new Intl.DateTimeFormat("ar-SA", { hour: "numeric", minute: "2-digit" }).format(selectedAt);
 
   const setSuggestedTime = (hoursFromNow: number) => {
-    const next = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
-    setVisitDate(next.toISOString().slice(0, 10));
-    setVisitTime(next.toTimeString().slice(0, 5));
+    setSelectedAt(new Date(Date.now() + hoursFromNow * 60 * 60 * 1000));
     setError("");
+  };
+
+  const handlePickerChange = (event: DateTimePickerEvent, value?: Date) => {
+    if (event.type === "dismissed" || !value) {
+      setPickerMode(null);
+      return;
+    }
+    setSelectedAt((current) => {
+      const next = new Date(current);
+      if (pickerMode === "date") next.setFullYear(value.getFullYear(), value.getMonth(), value.getDate());
+      else next.setHours(value.getHours(), value.getMinutes(), 0, 0);
+      return next;
+    });
+    setError("");
+    setPickerMode(pickerMode === "date" && Platform.OS === "android" ? "time" : null);
   };
 
   const close = () => {
@@ -38,8 +54,7 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
       setClinicName("");
       setServiceName("");
       setDistrictLabel("");
-      setVisitDate("");
-      setVisitTime("");
+      setSelectedAt(new Date(Date.now() + 2 * 60 * 60 * 1000));
       close();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "تعذر حفظ الزيارة الآن.");
@@ -95,15 +110,16 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
               returnKeyType="next"
             />
             <Text style={styles.inputLabel}>موعد الزيارة</Text>
-            <Text style={styles.dateHelp}>اختر اقتراحاً أو اكتب التاريخ والوقت بصيغة واضحة.</Text>
+            <Text style={styles.dateHelp}>اختر التاريخ والوقت من مكونات جهازك أو استخدم اقتراحاً سريعاً.</Text>
             <View style={styles.suggestionRow}>
               <Pressable onPress={() => setSuggestedTime(24)} style={({ pressed }) => [styles.suggestion, pressed && styles.pressed]}><Text style={styles.suggestionText}>غداً</Text></Pressable>
               <Pressable onPress={() => setSuggestedTime(2)} style={({ pressed }) => [styles.suggestion, pressed && styles.pressed]}><Text style={styles.suggestionText}>بعد ساعتين</Text></Pressable>
             </View>
             <View style={styles.dateRow}>
-              <TextInput value={visitTime} onChangeText={(value) => { setVisitTime(value.replace(/[^0-9:]/g, "").slice(0, 5)); setError(""); }} placeholder="14:30" placeholderTextColor="#93A7A1" style={[styles.input, styles.timeInput]} textAlign="center" keyboardType="numbers-and-punctuation" returnKeyType="done" onSubmitEditing={() => void save()} />
-              <TextInput value={visitDate} onChangeText={(value) => { setVisitDate(value.replace(/[^0-9-]/g, "").slice(0, 10)); setError(""); }} placeholder="2026-08-26" placeholderTextColor="#93A7A1" style={[styles.input, styles.dateInput]} textAlign="center" keyboardType="numbers-and-punctuation" returnKeyType="next" />
+              <Pressable onPress={() => setPickerMode("time")} style={({ pressed }) => [styles.pickerButton, pressed && styles.pressed]}><MaterialIcons name="schedule" size={20} color="#0B776B" /><Text style={styles.pickerValue}>{timeLabel}</Text><Text style={styles.pickerLabel}>الوقت</Text></Pressable>
+              <Pressable onPress={() => setPickerMode("date")} style={({ pressed }) => [styles.pickerButton, pressed && styles.pressed]}><MaterialIcons name="calendar-month" size={20} color="#0B776B" /><Text style={styles.pickerValue}>{dateLabel}</Text><Text style={styles.pickerLabel}>التاريخ</Text></Pressable>
             </View>
+            {pickerMode ? <DateTimePicker value={selectedAt} mode={pickerMode} display={Platform.OS === "ios" ? "spinner" : "default"} minimumDate={new Date()} onChange={handlePickerChange} /> : null}
           </> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable onPress={() => void save()} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
@@ -133,8 +149,9 @@ const styles = StyleSheet.create({
   suggestion: { backgroundColor: "#EAF6F3", borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7 },
   suggestionText: { color: "#0B776B", fontSize: 12, fontWeight: "800" },
   dateRow: { flexDirection: "row-reverse", gap: 9 },
-  dateInput: { flex: 1.3 },
-  timeInput: { flex: 0.7 },
+  pickerButton: { alignItems: "center", backgroundColor: "#F7FAF9", borderColor: "#D9E8E3", borderRadius: 14, borderWidth: 1, flex: 1, minHeight: 74, padding: 10 },
+  pickerLabel: { color: "#6A827C", fontSize: 11, marginTop: 4 },
+  pickerValue: { color: "#183B36", fontSize: 12, fontWeight: "800", marginTop: 5, textAlign: "center" },
   error: { color: "#AE403A", fontSize: 13, marginBottom: 14, textAlign: "right" },
   saveButton: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 15, flexDirection: "row", gap: 8, justifyContent: "center", minHeight: 54, marginTop: 6 },
   saveText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
