@@ -1,7 +1,9 @@
 export type VisitStatus =
   | "REQUESTED"
   | "ASSIGNED"
+  | "CONFIRMED"
   | "EN_ROUTE"
+  | "ARRIVED"
   | "IN_PROGRESS"
   | "COMPLETED"
   | "CANCELLED";
@@ -10,6 +12,8 @@ export type VisitFilter = "ALL" | "ACTIVE" | "COMPLETED" | "CANCELLED";
 
 export type ClinicVisit = {
   id: string;
+  remoteId?: number;
+  reference?: string;
   clinicName: string;
   serviceName: string;
   status: VisitStatus;
@@ -21,6 +25,7 @@ export type ClinicVisit = {
 
 export type ClinicNotification = {
   id: string;
+  visitRemoteId?: number;
   category: "APPOINTMENT" | "MEDICAL";
   title: string;
   body: string;
@@ -32,7 +37,9 @@ export type ClinicNotification = {
 export const visitStatusLabel: Record<VisitStatus, string> = {
   REQUESTED: "طلب جديد",
   ASSIGNED: "تم التعيين",
+  CONFIRMED: "مؤكدة",
   EN_ROUTE: "في الطريق",
+  ARRIVED: "تم الوصول",
   IN_PROGRESS: "قيد التنفيذ",
   COMPLETED: "مكتملة",
   CANCELLED: "ملغاة",
@@ -47,8 +54,10 @@ export const filterLabel: Record<VisitFilter, string> = {
 
 const nextStatus: Record<VisitStatus, VisitStatus | null> = {
   REQUESTED: "ASSIGNED",
-  ASSIGNED: "EN_ROUTE",
-  EN_ROUTE: "IN_PROGRESS",
+  ASSIGNED: "CONFIRMED",
+  CONFIRMED: "EN_ROUTE",
+  EN_ROUTE: "ARRIVED",
+  ARRIVED: "IN_PROGRESS",
   IN_PROGRESS: "COMPLETED",
   COMPLETED: null,
   CANCELLED: null,

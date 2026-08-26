@@ -59,7 +59,7 @@ type MediCareContextValue = {
   session: PatientSession | null;
   lastSyncedAt: number | null;
   syncHistory: SyncEvent[];
-  addVisit: (input: { clinicName: string; serviceName: string; districtLabel?: string; scheduledStart?: string }) => Promise<void>;
+  addVisit: (input: { clinicName: string; serviceName: string; districtLabel?: string; scheduledStart?: string }) => Promise<ClinicVisit>;
   advanceVisitStatus: (visitId: string) => void;
   addMedicalNotification: () => boolean;
   markNotificationRead: (notificationId: string) => Promise<void>;
@@ -231,7 +231,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
       setConnection("CONNECTED");
       setLastSyncedAt(Date.now());
       recordSync("SUCCESS", "تم إرسال طلب زيارة جديد إلى الحساب.");
-      return;
+      return visit;
     }
 
     const visit = createVisit(input.clinicName, input.serviceName);
@@ -242,6 +242,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
         ? [createAppointmentNotification(visit), ...current.localNotifications]
         : current.localNotifications,
     }));
+    return visit;
   }, [recordSync, session, updateState]);
 
   const advanceVisitStatus = useCallback((visitId: string) => {

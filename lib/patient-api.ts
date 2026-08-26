@@ -23,7 +23,7 @@ type TokenResponse = {
   error?: string;
 };
 
-type RemoteVisit = {
+export type RemoteVisit = {
   id: number;
   reference: string;
   clinicName: string;
@@ -48,6 +48,19 @@ export type PatientSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+};
+
+export type PatientReport = {
+  visitId: number;
+  summary: string;
+  finalizedAt?: string | Date;
+};
+
+export type PatientInvoice = {
+  visitId: number;
+  invoiceNo: string;
+  totalHalalas: number;
+  status: "DUE" | "PAID";
 };
 
 function resolveApiOrigin(configuredOrigin = process.env.EXPO_PUBLIC_PATIENT_API_ORIGIN) {
@@ -83,10 +96,12 @@ function toSession(payload: TokenResponse): PatientSession {
 }
 
 function mapRemoteVisit(visit: RemoteVisit): ClinicVisit {
-  const statuses: VisitStatus[] = ["REQUESTED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+  const statuses: VisitStatus[] = ["REQUESTED", "ASSIGNED", "CONFIRMED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
   const status = statuses.includes(visit.state as VisitStatus) ? (visit.state as VisitStatus) : "REQUESTED";
   return {
     id: visit.reference || `WEB-${visit.id}`,
+    remoteId: visit.id,
+    reference: visit.reference,
     clinicName: visit.clinicName,
     serviceName: visit.serviceName,
     districtLabel: visit.districtLabel,
@@ -100,6 +115,7 @@ function mapRemoteVisit(visit: RemoteVisit): ClinicVisit {
 function mapRemoteNotification(notification: RemoteNotification): ClinicNotification {
   return {
     id: `WEB-N-${notification.id}`,
+    visitRemoteId: notification.visitId ?? undefined,
     category: notification.kind === "VISIT_CREATED" ? "APPOINTMENT" : "MEDICAL",
     title: notification.title,
     body: notification.body,
@@ -192,6 +208,11 @@ export async function listRemoteVisits(session: PatientSession) {
   return visits.map(mapRemoteVisit);
 }
 
+export async function getRemoteVisit(session: PatientSession, visitId: number) {
+  const visit = await callTrpc<RemoteVisit>("visits.getMine", session.accessToken, { visitId });
+  return mapRemoteVisit(visit);
+}
+
 export async function createRemoteVisit(session: PatientSession, input: { clinicName: string; serviceName: string; districtLabel: string; scheduledStart: string }) {
   const scheduled = new Date(input.scheduledStart);
   if (!Number.isFinite(scheduled.getTime())) throw new Error("أدخل موعداً صالحاً بصيغة YYYY-MM-DDTHH:MM.");
@@ -217,4 +238,16 @@ export async function markRemoteNotificationRead(session: PatientSession, notifi
 
 export async function registerRemotePushToken(session: PatientSession, expoPushToken: string) {
   await callTrpc<{ success: true }>("patientDevices.register", session.accessToken, { expoPushToken, platform: "expo" }, "POST");
+}
+
+export async function getRemoteReport(session: PatientSession, visitId: number) {
+  return callTrpc<PatientReport>("outputs.reportMine", session.accessToken, { visitId });
+}
+
+export async function getRemoteInvoice(session: PatientSession, visitId: number) {
+  return callTrpc<PatientInvoice>("outputs.invoiceMine", session.accessToken, { visitId });
+}
+
+export async function recordRemoteDemoPayment(session: PatientSession, visitId: number) {
+  return callTrpc<PatientInvoice>("outputs.recordDemoPayment", session.accessToken, { visitId }, "POST");
 }

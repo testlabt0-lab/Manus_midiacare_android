@@ -1,11 +1,11 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
 
-import { VisitComposer } from "@/components/medicare/visit-composer";
 import { VisitStatusBadge } from "@/components/medicare/visit-status-badge";
 import { ScreenContainer } from "@/components/screen-container";
-import { filterAndSearchVisits, filterLabel, getNextStatus, visitStatusLabel, type ClinicVisit, type VisitFilter } from "@/lib/medicare-domain";
+import { filterAndSearchVisits, filterLabel, type ClinicVisit, type VisitFilter } from "@/lib/medicare-domain";
 import { useMediCare } from "@/lib/medicare-store";
 
 function formatDate(timestamp: number) {
@@ -13,28 +13,22 @@ function formatDate(timestamp: number) {
 }
 
 export default function VisitsScreen() {
-  const { visits, advanceVisitStatus } = useMediCare();
+  const router = useRouter();
+  const { visits, session } = useMediCare();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<VisitFilter>("ALL");
-  const [composerOpen, setComposerOpen] = useState(false);
   const visibleVisits = useMemo(() => filterAndSearchVisits(visits, filter, query), [filter, query, visits]);
 
   const renderVisit = ({ item }: { item: ClinicVisit }) => {
-    const next = getNextStatus(item);
     return (
       <View style={styles.visitCard}>
         <View style={styles.visitTop}>
           <View style={styles.visitIcon}><MaterialIcons name="medical-services" size={22} color="#0B776B" /></View>
-          <View style={styles.visitCopy}><Text style={styles.visitService}>{item.serviceName}</Text><Text style={styles.visitClinic}>{item.clinicName} · {formatDate(item.createdAt)}</Text></View>
+          <View style={styles.visitCopy}><Text style={styles.visitService}>{item.serviceName}</Text><Text style={styles.visitClinic}>{item.clinicName} · {item.scheduledStart ? formatDate(item.scheduledStart) : formatDate(item.createdAt)}</Text></View>
           <VisitStatusBadge status={item.status} />
         </View>
         <View style={styles.divider} />
-        {next ? (
-          <Pressable onPress={() => advanceVisitStatus(item.id)} style={({ pressed }) => [styles.updateButton, pressed && styles.pressed]}>
-            <MaterialIcons name="arrow-back" size={18} color="#0B776B" />
-            <Text style={styles.updateText}>تحديث إلى {visitStatusLabel[next]}</Text>
-          </Pressable>
-        ) : <Text style={styles.completeText}>{item.status === "COMPLETED" ? "اكتملت هذه الزيارة." : "لا يمكن تحديث هذه الزيارة."}</Text>}
+        <Pressable onPress={() => router.push(`/visit/${item.remoteId ?? item.id}`)} style={({ pressed }) => [styles.updateButton, pressed && styles.pressed]}><MaterialIcons name="arrow-back" size={18} color="#0B776B" /><Text style={styles.updateText}>عرض التفاصيل</Text></Pressable>
       </View>
     );
   };
@@ -49,15 +43,14 @@ export default function VisitsScreen() {
         contentContainerStyle={[styles.content, visibleVisits.length === 0 && styles.grow]}
         ListHeaderComponent={
           <>
-            <View style={styles.header}><View><Text style={styles.title}>زياراتي</Text><Text style={styles.subtitle}>تابع حالة الزيارات المسجلة على جهازك.</Text></View><Pressable onPress={() => setComposerOpen(true)} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]} accessibilityLabel="إضافة زيارة"><MaterialIcons name="add" size={25} color="#FFFFFF" /></Pressable></View>
+            <View style={styles.header}><View><Text style={styles.title}>زياراتي</Text><Text style={styles.subtitle}>{session ? "حجوزاتك المحفوظة في حساب المريض." : "سجّل الدخول لمزامنة حجوزاتك مع الموقع."}</Text></View><Pressable onPress={() => router.push("/book")} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]} accessibilityLabel="حجز زيارة"><MaterialIcons name="add" size={25} color="#FFFFFF" /></Pressable></View>
             <View style={styles.searchBox}><MaterialIcons name="search" size={20} color="#78938C" /><TextInput value={query} onChangeText={setQuery} placeholder="ابحث باسم العيادة أو الخدمة" placeholderTextColor="#8EA19C" style={styles.searchInput} textAlign="right" returnKeyType="search" /></View>
             <View style={styles.filters}>{(["ALL", "ACTIVE", "COMPLETED", "CANCELLED"] as VisitFilter[]).map((item) => <Pressable key={item} onPress={() => setFilter(item)} style={({ pressed }) => [styles.filter, filter === item && styles.filterActive, pressed && styles.pressed]}><Text style={[styles.filterText, filter === item && styles.filterTextActive]}>{filterLabel[item]}</Text></Pressable>)}</View>
           </>
         }
-        ListEmptyComponent={<View style={styles.empty}><View style={styles.emptyIcon}><MaterialIcons name="calendar-month" size={33} color="#0B776B" /></View><Text style={styles.emptyTitle}>{query.trim() ? "لا توجد نتائج مطابقة" : "لا توجد زيارات بعد"}</Text><Text style={styles.emptyCopy}>{query.trim() ? "جرّب كتابة اسم مختلف للعيادة أو الخدمة." : "ابدأ بإضافة زيارة جديدة لتتابع حالتها من هنا."}</Text><Pressable onPress={() => setComposerOpen(true)} style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}><Text style={styles.emptyButtonText}>إضافة زيارة</Text></Pressable></View>}
+        ListEmptyComponent={<View style={styles.empty}><View style={styles.emptyIcon}><MaterialIcons name="calendar-month" size={33} color="#0B776B" /></View><Text style={styles.emptyTitle}>{query.trim() ? "لا توجد نتائج مطابقة" : "لا توجد زيارات بعد"}</Text><Text style={styles.emptyCopy}>{query.trim() ? "جرّب كتابة اسم مختلف للعيادة أو الخدمة." : "ابدأ بحجز زيارة جديدة لتتابع حالتها من هنا."}</Text><Pressable onPress={() => router.push("/book")} style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}><Text style={styles.emptyButtonText}>حجز زيارة</Text></Pressable></View>}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
-      <VisitComposer visible={composerOpen} onClose={() => setComposerOpen(false)} />
     </ScreenContainer>
   );
 }

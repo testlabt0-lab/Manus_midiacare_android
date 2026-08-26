@@ -1,5 +1,6 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { type ClinicNotification } from "@/lib/medicare-domain";
@@ -10,6 +11,7 @@ function formatTime(timestamp: number) {
 }
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const { notifications, unreadCount, markNotificationRead, markAllNotificationsRead, addMedicalNotification } = useMediCare();
 
   const createInfoNotice = () => {
@@ -20,7 +22,7 @@ export default function NotificationsScreen() {
 
   const renderNotification = ({ item }: { item: ClinicNotification }) => {
     const medical = item.category === "MEDICAL";
-    return <Pressable onPress={() => markNotificationRead(item.id)} style={({ pressed }) => [styles.card, !item.read && styles.unreadCard, pressed && styles.pressed]}>
+    return <Pressable onPress={async () => { await markNotificationRead(item.id); if (item.visitRemoteId) router.push(`/visit/${item.visitRemoteId}`); }} style={({ pressed }) => [styles.card, !item.read && styles.unreadCard, pressed && styles.pressed]}>
       <View style={[styles.icon, { backgroundColor: medical ? "#F0ECFF" : "#E6F5F2" }]}><MaterialIcons name={medical ? "health-and-safety" : "event-note"} size={21} color={medical ? "#6950AA" : "#0B776B"} /></View>
       <View style={styles.copy}><View style={styles.cardTitleRow}>{!item.read ? <View style={styles.unreadDot} /> : null}<Text style={styles.cardTitle}>{item.title}</Text></View><Text style={styles.cardBody}>{item.body}</Text><Text style={styles.cardTime}>{formatTime(item.createdAt)}</Text></View>
     </Pressable>;

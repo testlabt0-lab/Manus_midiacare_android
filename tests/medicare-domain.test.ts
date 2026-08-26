@@ -10,7 +10,7 @@ describe("منطق زيارات MediCare Pro", () => {
 
   it("يتبع مسار الانتقال التشغيلي حتى اكتمال الزيارة", () => {
     const visit = createVisit("عيادة الأمل", "زيارة منزلية", 1000);
-    const complete = advanceVisit(advanceVisit(advanceVisit(advanceVisit(visit))));
+    const complete = advanceVisit(advanceVisit(advanceVisit(advanceVisit(advanceVisit(advanceVisit(visit))))));
     expect(complete.status).toBe("COMPLETED");
     expect(advanceVisit(complete)).toEqual(complete);
   });

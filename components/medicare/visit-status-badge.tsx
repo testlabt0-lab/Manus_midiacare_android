@@ -5,7 +5,9 @@ import { visitStatusLabel, type VisitStatus } from "@/lib/medicare-domain";
 const toneByStatus: Record<VisitStatus, { background: string; color: string }> = {
   REQUESTED: { background: "#EAF4F2", color: "#0B776B" },
   ASSIGNED: { background: "#FFF3DB", color: "#9A5B12" },
+  CONFIRMED: { background: "#E8F0FF", color: "#3A69B8" },
   EN_ROUTE: { background: "#E8F0FF", color: "#3A69B8" },
+  ARRIVED: { background: "#E6F5F2", color: "#0B776B" },
   IN_PROGRESS: { background: "#EEE9FF", color: "#6950AA" },
   COMPLETED: { background: "#E6F7ED", color: "#267A49" },
   CANCELLED: { background: "#FDEAEA", color: "#AE403A" },

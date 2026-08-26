@@ -1,132 +1,30 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import { useMemo, useState } from "react";
+import { useRouter } from "expo-router";
+import { useMemo } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { VisitComposer } from "@/components/medicare/visit-composer";
 import { ScreenContainer } from "@/components/screen-container";
 import { getVisitSummary } from "@/lib/medicare-domain";
 import { useMediCare } from "@/lib/medicare-store";
 
 function Metric({ label, value, icon, tint }: { label: string; value: number; icon: keyof typeof MaterialIcons.glyphMap; tint: string }) {
-  return (
-    <View style={styles.metricCard}>
-      <View style={[styles.metricIcon, { backgroundColor: tint }]}><MaterialIcons name={icon} size={20} color="#0B776B" /></View>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
-    </View>
-  );
+  return <View style={styles.metric}><View style={[styles.metricIcon, { backgroundColor: tint }]}><MaterialIcons name={icon} size={19} color="#0B776B" /></View><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
 }
 
 export default function DashboardScreen() {
-  const { visits, unreadCount, ready } = useMediCare();
-  const [composerOpen, setComposerOpen] = useState(false);
+  const router = useRouter();
+  const { visits, unreadCount, ready, session } = useMediCare();
   const summary = useMemo(() => getVisitSummary(visits), [visits]);
-  const latestVisit = visits[0];
-
-  if (!ready) {
-    return <ScreenContainer><View style={styles.loading}><ActivityIndicator size="large" color="#0B776B" /><Text style={styles.loadingText}>يتم تجهيز بياناتك المحلية…</Text></View></ScreenContainer>;
-  }
-
-  return (
-    <ScreenContainer>
-      <FlatList
-        data={[]}
-        renderItem={null}
-        keyExtractor={(_, index) => `dashboard-${index}`}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-        ListHeaderComponent={
-          <>
-            <View style={styles.topRow}>
-              <View style={styles.brandMark}><MaterialIcons name="health-and-safety" size={23} color="#FFFFFF" /></View>
-              <View style={styles.topCopy}><Text style={styles.eyebrow}>MEDICARE PRO MOBILE</Text><Text style={styles.greeting}>صباح العافية</Text></View>
-              <View style={styles.localPill}><View style={styles.localDot} /><Text style={styles.localText}>محلي</Text></View>
-            </View>
-
-            <View style={styles.hero}>
-              <View style={styles.heroPattern}><MaterialIcons name="monitor-heart" size={96} color="rgba(255,255,255,0.12)" /></View>
-              <Text style={styles.heroKicker}>متابعة الزيارات المنزلية</Text>
-              <Text style={styles.heroTitle}>كل ما تحتاجه لرعاية أكثر تنظيماً.</Text>
-              <Text style={styles.heroCopy}>تُحفظ السجلات والتنبيهات على جهازك لتتابعها بسهولة وفي أي وقت.</Text>
-              <Pressable onPress={() => setComposerOpen(true)} style={({ pressed }) => [styles.heroButton, pressed && styles.pressed]}>
-                <MaterialIcons name="add" size={21} color="#0B776B" />
-                <Text style={styles.heroButtonText}>إضافة زيارة</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>ملخص الزيارات</Text><Text style={styles.sectionHint}>يُحدّث تلقائياً</Text></View>
-            <View style={styles.metrics}>
-              <Metric label="كل الزيارات" value={summary.total} icon="calendar-month" tint="#E4F5F1" />
-              <Metric label="نشطة" value={summary.active} icon="pending-actions" tint="#FFF2DD" />
-              <Metric label="قيد التنفيذ" value={summary.inProgress} icon="monitor-heart" tint="#EEE9FF" />
-              <Metric label="مكتملة" value={summary.completed} icon="task-alt" tint="#E6F7ED" />
-            </View>
-
-            <Text style={styles.sectionTitle}>نظرة سريعة</Text>
-            <View style={styles.upcomingCard}>
-              <View style={styles.upcomingIcon}><MaterialIcons name={latestVisit ? "event-available" : "event-busy"} size={22} color="#0B776B" /></View>
-              <View style={styles.upcomingCopy}>
-                <Text style={styles.upcomingLabel}>{latestVisit ? "آخر زيارة تم تسجيلها" : "لا توجد زيارات مسجلة"}</Text>
-                <Text style={styles.upcomingTitle}>{latestVisit ? `${latestVisit.serviceName} — ${latestVisit.clinicName}` : "أضف زيارة لتبدأ متابعة حالتها هنا."}</Text>
-              </View>
-            </View>
-
-            <View style={styles.actions}>
-              <Pressable onPress={() => setComposerOpen(true)} style={({ pressed }) => [styles.actionCard, pressed && styles.pressed]}>
-                <View style={styles.actionIcon}><MaterialIcons name="add-circle-outline" size={24} color="#0B776B" /></View>
-                <Text style={styles.actionTitle}>زيارة جديدة</Text>
-                <Text style={styles.actionCopy}>أنشئ سجلاً محلياً لموعدك أو خدمتك الصحية.</Text>
-              </Pressable>
-              <View style={styles.actionCard}>
-                <View style={[styles.actionIcon, { backgroundColor: "#FBEFEB" }]}><MaterialIcons name="notifications-none" size={24} color="#B6403A" /></View>
-                <Text style={styles.actionTitle}>التنبيهات</Text>
-                <Text style={styles.actionCopy}>{unreadCount ? `لديك ${unreadCount} تنبيه غير مقروء.` : "أنت على اطلاع، لا توجد تنبيهات جديدة."}</Text>
-              </View>
-            </View>
-          </>
-        }
-      />
-      <VisitComposer visible={composerOpen} onClose={() => setComposerOpen(false)} />
-    </ScreenContainer>
-  );
+  const upcoming = useMemo(() => visits.filter((visit) => visit.status !== "COMPLETED" && visit.status !== "CANCELLED").sort((a, b) => (a.scheduledStart ?? a.createdAt) - (b.scheduledStart ?? b.createdAt))[0], [visits]);
+  if (!ready) return <ScreenContainer><View style={styles.loading}><ActivityIndicator size="large" color="#0B776B" /><Text style={styles.loadingText}>يتم تجهيز مساحة المريض…</Text></View></ScreenContainer>;
+  const date = upcoming?.scheduledStart ? new Intl.DateTimeFormat("ar-SA", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(upcoming.scheduledStart)) : "لا يوجد موعد قادم";
+  return <ScreenContainer><FlatList data={[]} renderItem={null} contentContainerStyle={styles.content} ListHeaderComponent={<>
+    <View style={styles.top}><View style={styles.mark}><MaterialIcons name="health-and-safety" size={23} color="#FFFFFF" /></View><View style={styles.topCopy}><Text style={styles.eyebrow}>MEDICARE PRO</Text><Text style={styles.greeting}>مساحة المريض</Text></View><View style={styles.pill}><View style={styles.dot} /><Text style={styles.pillText}>{session ? "الحساب متصل" : "وضع محلي"}</Text></View></View>
+    <View style={styles.hero}><MaterialIcons style={styles.heroPattern} name="monitor-heart" size={94} color="rgba(255,255,255,0.12)" /><Text style={styles.heroKicker}>الرعاية في مكانك وبإيقاعك</Text><Text style={styles.heroTitle}>تابع زياراتك المنزلية من مكان واحد.</Text><Text style={styles.heroCopy}>احجز زيارة، تابع مسارها، واطّلع على التقرير والفاتورة بعد إتاحة المخرجات.</Text><Pressable onPress={() => router.push("/book")} style={({ pressed }) => [styles.heroButton, pressed && styles.pressed]}><MaterialIcons name="add" size={20} color="#0B776B" /><Text style={styles.heroButtonText}>احجز زيارة منزلية</Text></Pressable></View>
+    <Text style={styles.sectionTitle}>ملخص المريض</Text><View style={styles.metrics}><Metric label="زيارات قادمة" value={summary.active} icon="calendar-month" tint="#E4F5F1" /><Metric label="مكتملة" value={summary.completed} icon="task-alt" tint="#E6F7ED" /><Metric label="تقارير متاحة" value={visits.filter((visit) => visit.status === "COMPLETED" && visit.remoteId).length} icon="description" tint="#E8F0FF" /><Metric label="تحديثات" value={unreadCount} icon="notifications" tint="#FFF2DD" /></View>
+    <Text style={styles.sectionTitle}>الزيارة القادمة</Text><Pressable disabled={!upcoming} onPress={() => upcoming && router.push(`/visit/${upcoming.remoteId ?? upcoming.id}`)} style={({ pressed }) => [styles.upcoming, pressed && upcoming && styles.pressed]}><View style={styles.upcomingIcon}><MaterialIcons name={upcoming ? "event-available" : "event-busy"} size={22} color="#0B776B" /></View><View style={styles.upcomingCopy}><Text style={styles.upcomingLabel}>{upcoming ? upcoming.serviceName : "لا توجد زيارات قادمة"}</Text><Text style={styles.upcomingText}>{upcoming ? `${date} · ${upcoming.clinicName}` : "احجز زيارة منزلية لتبدأ المتابعة."}</Text></View>{upcoming ? <MaterialIcons name="chevron-left" size={23} color="#0B776B" /> : null}</Pressable>
+    <Text style={styles.sectionTitle}>وصول سريع</Text><View style={styles.quickRow}><Pressable onPress={() => router.push("/reports")} style={({ pressed }) => [styles.quick, pressed && styles.pressed]}><View style={styles.quickIcon}><MaterialIcons name="description" size={23} color="#0B776B" /></View><Text style={styles.quickTitle}>التقارير</Text><Text style={styles.quickText}>تقاريرك النهائية</Text></Pressable><Pressable onPress={() => router.push("/invoices")} style={({ pressed }) => [styles.quick, pressed && styles.pressed]}><View style={[styles.quickIcon, { backgroundColor: "#FFF2DD" }]}><MaterialIcons name="receipt-long" size={23} color="#B6651C" /></View><Text style={styles.quickTitle}>الفواتير</Text><Text style={styles.quickText}>ملخصات آمنة للزيارة</Text></Pressable></View>
+  </>} /></ScreenContainer>;
 }
 
-const styles = StyleSheet.create({
-  content: { padding: 20, paddingBottom: 34 },
-  loading: { alignItems: "center", flex: 1, justifyContent: "center", gap: 14 },
-  loadingText: { color: "#6A827C", fontSize: 14 },
-  topRow: { alignItems: "center", flexDirection: "row-reverse", marginBottom: 22 },
-  brandMark: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 16, height: 48, justifyContent: "center", width: 48 },
-  topCopy: { flex: 1, marginRight: 11 },
-  eyebrow: { color: "#6A827C", fontSize: 10, fontWeight: "800", letterSpacing: 1, textAlign: "right" },
-  greeting: { color: "#183B36", fontSize: 22, fontWeight: "800", marginTop: 3, textAlign: "right" },
-  localPill: { alignItems: "center", backgroundColor: "#E7F5EF", borderRadius: 99, flexDirection: "row-reverse", gap: 5, paddingHorizontal: 9, paddingVertical: 7 },
-  localDot: { backgroundColor: "#31945B", borderRadius: 5, height: 7, width: 7 },
-  localText: { color: "#267A49", fontSize: 11, fontWeight: "800" },
-  hero: { backgroundColor: "#0B776B", borderRadius: 26, marginBottom: 26, overflow: "hidden", padding: 23 },
-  heroPattern: { position: "absolute", left: -5, top: -20 },
-  heroKicker: { color: "#BFE9DE", fontSize: 12, fontWeight: "800", marginBottom: 8, textAlign: "right" },
-  heroTitle: { color: "#FFFFFF", fontSize: 25, fontWeight: "800", lineHeight: 34, maxWidth: "88%", textAlign: "right" },
-  heroCopy: { color: "#D7F0EA", fontSize: 13, lineHeight: 20, marginTop: 9, textAlign: "right" },
-  heroButton: { alignItems: "center", alignSelf: "flex-end", backgroundColor: "#FFFFFF", borderRadius: 14, flexDirection: "row-reverse", gap: 6, marginTop: 20, paddingHorizontal: 15, paddingVertical: 12 },
-  heroButtonText: { color: "#0B776B", fontSize: 14, fontWeight: "800" },
-  sectionHeader: { alignItems: "center", flexDirection: "row-reverse", justifyContent: "space-between", marginBottom: 12 },
-  sectionTitle: { color: "#183B36", fontSize: 17, fontWeight: "800", marginBottom: 12, textAlign: "right" },
-  sectionHint: { color: "#6A827C", fontSize: 11, marginBottom: 12 },
-  metrics: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 10, marginBottom: 25 },
-  metricCard: { backgroundColor: "#FFFFFF", borderColor: "#E3EFEB", borderRadius: 18, borderWidth: 1, flexBasis: "47%", flexGrow: 1, padding: 14 },
-  metricIcon: { alignItems: "center", alignSelf: "flex-end", borderRadius: 11, height: 35, justifyContent: "center", width: 35 },
-  metricValue: { color: "#183B36", fontSize: 26, fontWeight: "800", marginTop: 14, textAlign: "right" },
-  metricLabel: { color: "#6A827C", fontSize: 12, marginTop: 2, textAlign: "right" },
-  upcomingCard: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#E3EFEB", borderRadius: 18, borderWidth: 1, flexDirection: "row-reverse", marginBottom: 16, padding: 15 },
-  upcomingIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, height: 43, justifyContent: "center", width: 43 },
-  upcomingCopy: { flex: 1, marginRight: 12 },
-  upcomingLabel: { color: "#6A827C", fontSize: 12, textAlign: "right" },
-  upcomingTitle: { color: "#183B36", fontSize: 14, fontWeight: "700", lineHeight: 20, marginTop: 4, textAlign: "right" },
-  actions: { flexDirection: "row-reverse", gap: 10 },
-  actionCard: { backgroundColor: "#FFFFFF", borderColor: "#E3EFEB", borderRadius: 18, borderWidth: 1, flex: 1, minHeight: 170, padding: 14 },
-  actionIcon: { alignItems: "center", alignSelf: "flex-end", backgroundColor: "#E6F5F2", borderRadius: 12, height: 40, justifyContent: "center", width: 40 },
-  actionTitle: { color: "#183B36", fontSize: 15, fontWeight: "800", marginTop: 15, textAlign: "right" },
-  actionCopy: { color: "#6A827C", fontSize: 12, lineHeight: 18, marginTop: 5, textAlign: "right" },
-  pressed: { opacity: 0.8, transform: [{ scale: 0.98 }] },
-});
+const styles = StyleSheet.create({ content: { padding: 20, paddingBottom: 34 }, loading: { alignItems: "center", flex: 1, gap: 14, justifyContent: "center" }, loadingText: { color: "#6A827C", fontSize: 14 }, top: { alignItems: "center", flexDirection: "row-reverse", marginBottom: 22 }, mark: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 16, height: 48, justifyContent: "center", width: 48 }, topCopy: { flex: 1, marginRight: 11 }, eyebrow: { color: "#6A827C", fontSize: 10, fontWeight: "800", letterSpacing: 1, textAlign: "right" }, greeting: { color: "#183B36", fontSize: 22, fontWeight: "800", marginTop: 3, textAlign: "right" }, pill: { alignItems: "center", backgroundColor: "#E7F5EF", borderRadius: 99, flexDirection: "row-reverse", gap: 5, paddingHorizontal: 9, paddingVertical: 7 }, dot: { backgroundColor: "#31945B", borderRadius: 5, height: 7, width: 7 }, pillText: { color: "#267A49", fontSize: 10, fontWeight: "800" }, hero: { backgroundColor: "#0B776B", borderRadius: 26, marginBottom: 25, overflow: "hidden", padding: 23 }, heroPattern: { left: -5, position: "absolute", top: -20 }, heroKicker: { color: "#BFE9DE", fontSize: 12, fontWeight: "800", textAlign: "right" }, heroTitle: { color: "#FFFFFF", fontSize: 25, fontWeight: "800", lineHeight: 34, marginTop: 8, textAlign: "right" }, heroCopy: { color: "#D7F0EA", fontSize: 13, lineHeight: 20, marginTop: 9, textAlign: "right" }, heroButton: { alignItems: "center", alignSelf: "flex-end", backgroundColor: "#FFFFFF", borderRadius: 14, flexDirection: "row-reverse", gap: 6, marginTop: 20, paddingHorizontal: 15, paddingVertical: 12 }, heroButtonText: { color: "#0B776B", fontSize: 14, fontWeight: "800" }, sectionTitle: { color: "#183B36", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 6, textAlign: "right" }, metrics: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 10, marginBottom: 24 }, metric: { backgroundColor: "#FFFFFF", borderColor: "#E3EFEB", borderRadius: 18, borderWidth: 1, flexBasis: "47%", flexGrow: 1, padding: 14 }, metricIcon: { alignItems: "center", alignSelf: "flex-end", borderRadius: 11, height: 34, justifyContent: "center", width: 34 }, metricValue: { color: "#183B36", fontSize: 25, fontWeight: "800", marginTop: 13, textAlign: "right" }, metricLabel: { color: "#6A827C", fontSize: 12, marginTop: 2, textAlign: "right" }, upcoming: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#E3EFEB", borderRadius: 18, borderWidth: 1, flexDirection: "row-reverse", marginBottom: 24, padding: 15 }, upcomingIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, height: 43, justifyContent: "center", width: 43 }, upcomingCopy: { flex: 1, marginRight: 12 }, upcomingLabel: { color: "#183B36", fontSize: 14, fontWeight: "800", textAlign: "right" }, upcomingText: { color: "#6A827C", fontSize: 12, lineHeight: 18, marginTop: 4, textAlign: "right" }, quickRow: { flexDirection: "row-reverse", gap: 10 }, quick: { backgroundColor: "#FFFFFF", borderColor: "#E3EFEB", borderRadius: 18, borderWidth: 1, flex: 1, minHeight: 150, padding: 14 }, quickIcon: { alignItems: "center", alignSelf: "flex-end", backgroundColor: "#E6F5F2", borderRadius: 12, height: 40, justifyContent: "center", width: 40 }, quickTitle: { color: "#183B36", fontSize: 15, fontWeight: "800", marginTop: 14, textAlign: "right" }, quickText: { color: "#6A827C", fontSize: 11, lineHeight: 17, marginTop: 5, textAlign: "right" }, pressed: { opacity: 0.8, transform: [{ scale: 0.98 }] } });
