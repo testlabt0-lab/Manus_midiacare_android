@@ -14,6 +14,9 @@ export type ClinicVisit = {
   serviceName: string;
   status: VisitStatus;
   createdAt: number;
+  scheduledStart?: number;
+  districtLabel?: string;
+  source?: "LOCAL" | "REMOTE";
 };
 
 export type ClinicNotification = {
@@ -23,6 +26,7 @@ export type ClinicNotification = {
   body: string;
   createdAt: number;
   read: boolean;
+  source?: "LOCAL" | "REMOTE";
 };
 
 export const visitStatusLabel: Record<VisitStatus, string> = {

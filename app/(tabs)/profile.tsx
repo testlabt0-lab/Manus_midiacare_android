@@ -1,21 +1,55 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useMediCare } from "@/lib/medicare-store";
 
 export default function ProfileScreen() {
-  const { visits, notifications, preferences, setAppointmentAlerts, setMedicalAlerts, resetLocalData } = useMediCare();
+  const { visits, notifications, preferences, setAppointmentAlerts, setMedicalAlerts, resetLocalData, session, connection, connectionError, lastSyncedAt, login, logout, sync, enableDeviceNotifications } = useMediCare();
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
 
+  const handleLogin = async () => {
+    try {
+      await login();
+      Alert.alert("تم تسجيل الدخول", "تم ربط حساب المريض ومزامنة الزيارات والتنبيهات.");
+    } catch (error) {
+      Alert.alert("تعذر تسجيل الدخول", error instanceof Error ? error.message : "حاول مرة أخرى.");
+    }
+  };
+
+  const handleSync = async () => {
+    try {
+      await sync();
+      Alert.alert("تم التحديث", "تمت مزامنة بيانات حساب المريض.");
+    } catch (error) {
+      Alert.alert("تعذر التحديث", error instanceof Error ? error.message : "تحقق من اتصالك ثم أعد المحاولة.");
+    }
+  };
+
+  const handleEnableNotifications = async () => {
+    try {
+      const result = await enableDeviceNotifications();
+      const messages = {
+        enabled: "تم تفعيل تذكيرات المواعيد على هذا الجهاز.",
+        denied: "لم يتم منح إذن الإشعارات. يمكنك تفعيله من إعدادات الهاتف.",
+        "device-required": "تفعيل الإشعارات الفعلية يتطلب جهازاً حقيقياً.",
+        "build-required": "تفعيل الإشعارات البعيدة يتطلب بناء التطبيق ونشره على جهاز حقيقي.",
+        unavailable: "الإشعارات الفعلية غير متاحة في معاينة الويب.",
+      } as const;
+      Alert.alert("إشعارات المواعيد", messages[result.status]);
+    } catch (error) {
+      Alert.alert("تعذر تفعيل الإشعارات", error instanceof Error ? error.message : "حاول مرة أخرى.");
+    }
+  };
+
   return <ScreenContainer>
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.profileHero}><View style={styles.profileMark}><MaterialIcons name="health-and-safety" size={31} color="#FFFFFF" /></View><Text style={styles.title}>MediCare Pro</Text><Text style={styles.subtitle}>مساحتك المحلية لمتابعة الزيارات المنزلية.</Text></View>
-      <View style={styles.infoCard}><View style={styles.infoRow}><View style={styles.infoIcon}><MaterialIcons name="phonelink-lock" size={22} color="#0B776B" /></View><View style={styles.infoCopy}><Text style={styles.infoTitle}>وضع محلي آمن</Text><Text style={styles.infoText}>تُحفظ الزيارات والتنبيهات وإعداداتك على هذا الجهاز فقط. لا تتطلب المعاينة حساباً أو اتصالاً بخادم.</Text></View></View></View>
+      <View style={styles.profileHero}><View style={styles.profileMark}><MaterialIcons name="health-and-safety" size={31} color="#FFFFFF" /></View><Text style={styles.title}>MediCare Pro</Text><Text style={styles.subtitle}>متابعة الزيارات المنزلية من مكان واحد.</Text></View>
+      <View style={styles.infoCard}><View style={styles.infoRow}><View style={styles.infoIcon}><MaterialIcons name={session ? "verified-user" : "phonelink-lock"} size={22} color="#0B776B" /></View><View style={styles.infoCopy}><Text style={styles.infoTitle}>{session ? "حساب المريض متصل" : "وضع محلي آمن"}</Text><Text style={styles.infoText}>{session ? (connection === "CONNECTING" ? "جارٍ مزامنة الزيارات والتنبيهات المصرح بها…" : `آخر مزامنة: ${lastSyncedAt ? new Intl.DateTimeFormat("ar-SA", { hour: "numeric", minute: "2-digit" }).format(new Date(lastSyncedAt)) : "بانتظار التحديث"}`) : "سجّل الدخول لمزامنة الزيارات والتنبيهات الخاصة بحسابك. تبقى سجلاتك المحلية متاحة دائماً."}</Text>{connectionError ? <Text style={styles.connectionError}>{connectionError}</Text> : null}</View></View>{session ? <View style={styles.accountActions}><Pressable onPress={() => void handleSync()} disabled={connection === "CONNECTING"} style={({ pressed }) => [styles.syncButton, connection === "CONNECTING" && styles.disabled, pressed && styles.pressed]}><MaterialIcons name="sync" size={18} color="#0B776B" /><Text style={styles.syncText}>تحديث الحساب</Text></Pressable><Pressable onPress={() => void logout()} style={({ pressed }) => [styles.signOutButton, pressed && styles.pressed]}><Text style={styles.signOutText}>تسجيل الخروج</Text></Pressable></View> : <Pressable onPress={() => void handleLogin()} disabled={connection === "CONNECTING"} style={({ pressed }) => [styles.loginButton, connection === "CONNECTING" && styles.disabled, pressed && styles.pressed]}><MaterialIcons name="login" size={19} color="#FFFFFF" /><Text style={styles.loginText}>{connection === "CONNECTING" ? "جارٍ فتح تسجيل الدخول…" : "تسجيل الدخول الآمن"}</Text></Pressable>}</View>
       <Text style={styles.sectionTitle}>إعدادات التنبيهات</Text>
-      <View style={styles.settingCard}><View style={styles.settingRow}><Switch value={preferences.appointmentAlerts} onValueChange={setAppointmentAlerts} trackColor={{ false: "#D7E5E0", true: "#7CCBB8" }} thumbColor={preferences.appointmentAlerts ? "#0B776B" : "#F8FBFA"} /><View style={styles.settingCopy}><Text style={styles.infoTitle}>تنبيهات المواعيد</Text><Text style={styles.infoText}>يُنشئ التطبيق تنبيهاً عند حفظ زيارة جديدة.</Text></View></View><View style={styles.divider} /><View style={styles.settingRow}><Switch value={preferences.medicalAlerts} onValueChange={setMedicalAlerts} trackColor={{ false: "#D7E5E0", true: "#7CCBB8" }} thumbColor={preferences.medicalAlerts ? "#0B776B" : "#F8FBFA"} /><View style={styles.settingCopy}><Text style={styles.infoTitle}>التنبيهات المعلوماتية</Text><Text style={styles.infoText}>تتيح إضافة تذكيرات صحية داخل التطبيق.</Text></View></View></View>
+      <View style={styles.settingCard}><View style={styles.settingRow}><Switch value={preferences.appointmentAlerts} onValueChange={setAppointmentAlerts} trackColor={{ false: "#D7E5E0", true: "#7CCBB8" }} thumbColor={preferences.appointmentAlerts ? "#0B776B" : "#F8FBFA"} /><View style={styles.settingCopy}><Text style={styles.infoTitle}>تنبيهات المواعيد</Text><Text style={styles.infoText}>تنشئ تذكيراً قبل الموعد بساعة، بعد تفعيل إذن الجهاز.</Text></View></View><Pressable onPress={() => void handleEnableNotifications()} style={({ pressed }) => [styles.deviceNotificationButton, pressed && styles.pressed]}><MaterialIcons name="notifications-active" size={18} color="#0B776B" /><Text style={styles.deviceNotificationText}>تفعيل إشعارات هذا الجهاز</Text></Pressable><View style={styles.divider} /><View style={styles.settingRow}><Switch value={preferences.medicalAlerts} onValueChange={setMedicalAlerts} trackColor={{ false: "#D7E5E0", true: "#7CCBB8" }} thumbColor={preferences.medicalAlerts ? "#0B776B" : "#F8FBFA"} /><View style={styles.settingCopy}><Text style={styles.infoTitle}>التنبيهات المعلوماتية</Text><Text style={styles.infoText}>تتيح إضافة تذكيرات صحية داخل التطبيق.</Text></View></View></View>
       <Text style={styles.sectionTitle}>بيانات التطبيق</Text>
       <View style={styles.settingCard}><View style={styles.dataRow}><View style={styles.dataItem}><Text style={styles.dataValue}>{visits.length}</Text><Text style={styles.dataLabel}>زيارة</Text></View><View style={styles.dataDivider} /><View style={styles.dataItem}><Text style={styles.dataValue}>{notifications.length}</Text><Text style={styles.dataLabel}>تنبيه</Text></View></View><View style={styles.divider} /><Pressable onPress={() => setPrivacyOpen(true)} style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}><MaterialIcons name="chevron-left" size={22} color="#0B776B" /><Text style={styles.linkText}>معلومات الخصوصية</Text><MaterialIcons name="privacy-tip" size={20} color="#0B776B" /></Pressable><View style={styles.divider} /><Pressable onPress={() => setResetOpen(true)} style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}><MaterialIcons name="chevron-left" size={22} color="#B6403A" /><Text style={[styles.linkText, { color: "#B6403A" }]}>حذف البيانات المحلية</Text><MaterialIcons name="delete-outline" size={20} color="#B6403A" /></Pressable></View>
       <Text style={styles.version}>MediCare Pro Mobile · إصدار المعاينة</Text>
@@ -27,8 +61,8 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 35 }, profileHero: { alignItems: "center", marginBottom: 21 }, profileMark: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 24, height: 72, justifyContent: "center", width: 72 }, title: { color: "#183B36", fontSize: 25, fontWeight: "800", marginTop: 13 }, subtitle: { color: "#6A827C", fontSize: 13, marginTop: 5, textAlign: "center" },
-  infoCard: { backgroundColor: "#FFFFFF", borderColor: "#E0ECE8", borderRadius: 19, borderWidth: 1, padding: 15 }, infoRow: { alignItems: "flex-start", flexDirection: "row-reverse" }, infoIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, height: 43, justifyContent: "center", width: 43 }, infoCopy: { flex: 1, marginRight: 11 }, infoTitle: { color: "#183B36", fontSize: 14, fontWeight: "800", textAlign: "right" }, infoText: { color: "#6A827C", fontSize: 12, lineHeight: 18, marginTop: 4, textAlign: "right" },
-  sectionTitle: { color: "#183B36", fontSize: 17, fontWeight: "800", marginBottom: 11, marginTop: 24, textAlign: "right" }, settingCard: { backgroundColor: "#FFFFFF", borderColor: "#E0ECE8", borderRadius: 19, borderWidth: 1, padding: 15 }, settingRow: { alignItems: "center", flexDirection: "row-reverse", gap: 13 }, settingCopy: { flex: 1 }, divider: { backgroundColor: "#E8F0ED", height: 1, marginVertical: 14 },
+  infoCard: { backgroundColor: "#FFFFFF", borderColor: "#E0ECE8", borderRadius: 19, borderWidth: 1, padding: 15 }, infoRow: { alignItems: "flex-start", flexDirection: "row-reverse" }, infoIcon: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, height: 43, justifyContent: "center", width: 43 }, infoCopy: { flex: 1, marginRight: 11 }, infoTitle: { color: "#183B36", fontSize: 14, fontWeight: "800", textAlign: "right" }, infoText: { color: "#6A827C", fontSize: 12, lineHeight: 18, marginTop: 4, textAlign: "right" }, connectionError: { color: "#B6403A", fontSize: 11, lineHeight: 17, marginTop: 6, textAlign: "right" }, accountActions: { flexDirection: "row-reverse", gap: 9, marginTop: 15 }, loginButton: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 13, flexDirection: "row-reverse", gap: 7, justifyContent: "center", marginTop: 15, minHeight: 47 }, loginText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" }, syncButton: { alignItems: "center", backgroundColor: "#E6F5F2", borderRadius: 13, flex: 1, flexDirection: "row-reverse", gap: 6, justifyContent: "center", minHeight: 45 }, syncText: { color: "#0B776B", fontSize: 13, fontWeight: "800" }, signOutButton: { alignItems: "center", backgroundColor: "#FFF2F1", borderRadius: 13, flex: 1, justifyContent: "center", minHeight: 45 }, signOutText: { color: "#B6403A", fontSize: 13, fontWeight: "800" }, disabled: { opacity: 0.55 },
+  sectionTitle: { color: "#183B36", fontSize: 17, fontWeight: "800", marginBottom: 11, marginTop: 24, textAlign: "right" }, settingCard: { backgroundColor: "#FFFFFF", borderColor: "#E0ECE8", borderRadius: 19, borderWidth: 1, padding: 15 }, settingRow: { alignItems: "center", flexDirection: "row-reverse", gap: 13 }, settingCopy: { flex: 1 }, deviceNotificationButton: { alignItems: "center", backgroundColor: "#EAF6F3", borderRadius: 12, flexDirection: "row-reverse", gap: 7, justifyContent: "center", marginTop: 14, minHeight: 44 }, deviceNotificationText: { color: "#0B776B", fontSize: 13, fontWeight: "800" }, divider: { backgroundColor: "#E8F0ED", height: 1, marginVertical: 14 },
   dataRow: { flexDirection: "row-reverse", justifyContent: "space-around" }, dataItem: { alignItems: "center", flex: 1 }, dataValue: { color: "#0B776B", fontSize: 24, fontWeight: "800" }, dataLabel: { color: "#6A827C", fontSize: 12, marginTop: 3 }, dataDivider: { backgroundColor: "#E8F0ED", width: 1 }, linkRow: { alignItems: "center", flexDirection: "row-reverse" }, linkText: { color: "#0B776B", flex: 1, fontSize: 14, fontWeight: "700", marginHorizontal: 9, textAlign: "right" }, version: { color: "#91A49F", fontSize: 11, marginTop: 22, textAlign: "center" },
   modalOverlay: { alignItems: "center", backgroundColor: "rgba(17, 49, 43, 0.35)", flex: 1, justifyContent: "center", padding: 24 }, modalCard: { backgroundColor: "#FFFFFF", borderRadius: 23, maxWidth: 380, padding: 22, width: "100%" }, modalIcon: { alignItems: "center", alignSelf: "center", backgroundColor: "#E6F5F2", borderRadius: 18, height: 56, justifyContent: "center", width: 56 }, modalTitle: { color: "#183B36", fontSize: 19, fontWeight: "800", marginTop: 15, textAlign: "center" }, modalText: { color: "#58766F", fontSize: 13, lineHeight: 21, marginTop: 9, textAlign: "center" }, modalButton: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 13, marginTop: 20, paddingVertical: 12 }, modalButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" }, modalActions: { flexDirection: "row-reverse", gap: 9, marginTop: 21 }, cancelButton: { alignItems: "center", backgroundColor: "#F2F6F4", borderRadius: 13, flex: 1, paddingVertical: 12 }, cancelText: { color: "#41665D", fontSize: 14, fontWeight: "800" }, deleteButton: { alignItems: "center", backgroundColor: "#B6403A", borderRadius: 13, flex: 1, paddingVertical: 12 }, deleteText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },

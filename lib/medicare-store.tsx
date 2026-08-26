@@ -9,8 +9,21 @@ import {
   type ClinicNotification,
   type ClinicVisit,
 } from "@/lib/medicare-domain";
+import {
+  clearPatientSession,
+  createRemoteVisit,
+  listRemoteNotifications,
+  listRemoteVisits,
+  loadPatientSession,
+  markRemoteNotificationRead,
+  registerRemotePushToken,
+  renewPatientSession,
+  startPatientLogin,
+  type PatientSession,
+} from "@/lib/patient-api";
+import { activateAppointmentNotifications, syncAppointmentReminders, type NotificationActivation } from "@/lib/appointment-notifications";
 
-const STORAGE_KEY = "medicare-pro-mobile-local-data-v1";
+const STORAGE_KEY = "medicare-pro-mobile-local-data-v2";
 
 type Preferences = {
   appointmentAlerts: boolean;
@@ -18,31 +31,41 @@ type Preferences = {
 };
 
 type PersistedState = {
-  visits: ClinicVisit[];
-  notifications: ClinicNotification[];
+  localVisits: ClinicVisit[];
+  localNotifications: ClinicNotification[];
   preferences: Preferences;
 };
 
-type MediCareContextValue = PersistedState & {
+export type ConnectionState = "LOCAL" | "CONNECTING" | "CONNECTED" | "OFFLINE" | "ERROR";
+
+type MediCareContextValue = {
+  visits: ClinicVisit[];
+  notifications: ClinicNotification[];
+  preferences: Preferences;
   ready: boolean;
   unreadCount: number;
-  addVisit: (clinicName: string, serviceName: string) => void;
+  connection: ConnectionState;
+  connectionError: string | null;
+  session: PatientSession | null;
+  lastSyncedAt: number | null;
+  addVisit: (input: { clinicName: string; serviceName: string; districtLabel?: string; scheduledStart?: string }) => Promise<void>;
   advanceVisitStatus: (visitId: string) => void;
   addMedicalNotification: () => boolean;
-  markNotificationRead: (notificationId: string) => void;
-  markAllNotificationsRead: () => void;
+  markNotificationRead: (notificationId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   setAppointmentAlerts: (enabled: boolean) => void;
   setMedicalAlerts: (enabled: boolean) => void;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  sync: (silent?: boolean) => Promise<void>;
+  enableDeviceNotifications: () => Promise<NotificationActivation>;
   resetLocalData: () => void;
 };
 
 const defaultState: PersistedState = {
-  visits: [],
-  notifications: [],
-  preferences: {
-    appointmentAlerts: true,
-    medicalAlerts: true,
-  },
+  localVisits: [],
+  localNotifications: [],
+  preferences: { appointmentAlerts: true, medicalAlerts: true },
 };
 
 const MediCareContext = createContext<MediCareContextValue | null>(null);
@@ -50,32 +73,18 @@ const MediCareContext = createContext<MediCareContextValue | null>(null);
 function isPersistedState(value: unknown): value is PersistedState {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<PersistedState>;
-  return Array.isArray(candidate.visits) && Array.isArray(candidate.notifications) && Boolean(candidate.preferences);
+  return Array.isArray(candidate.localVisits) && Array.isArray(candidate.localNotifications) && Boolean(candidate.preferences);
 }
 
 export function MediCareProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PersistedState>(defaultState);
+  const [remoteVisits, setRemoteVisits] = useState<ClinicVisit[]>([]);
+  const [remoteNotifications, setRemoteNotifications] = useState<ClinicNotification[]>([]);
+  const [session, setSession] = useState<PatientSession | null>(null);
+  const [connection, setConnection] = useState<ConnectionState>("LOCAL");
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    void AsyncStorage.getItem(STORAGE_KEY)
-      .then((saved) => {
-        if (!saved) return;
-        const parsed: unknown = JSON.parse(saved);
-        if (isPersistedState(parsed)) {
-          setState({
-            visits: parsed.visits,
-            notifications: parsed.notifications,
-            preferences: {
-              appointmentAlerts: parsed.preferences.appointmentAlerts !== false,
-              medicalAlerts: parsed.preferences.medicalAlerts !== false,
-            },
-          });
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => setReady(true));
-  }, []);
 
   const updateState = useCallback((updater: (current: PersistedState) => PersistedState) => {
     setState((current) => {
@@ -85,91 +94,210 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const addVisit = useCallback(
-    (clinicName: string, serviceName: string) => {
-      const visit = createVisit(clinicName, serviceName);
-      updateState((current) => ({
-        ...current,
-        visits: [visit, ...current.visits],
-        notifications: current.preferences.appointmentAlerts
-          ? [createAppointmentNotification(visit), ...current.notifications]
-          : current.notifications,
-      }));
-    },
-    [updateState],
-  );
+  const syncWithSession = useCallback(async (activeSession: PatientSession, silent = false) => {
+    setConnection("CONNECTING");
+    setConnectionError(null);
+    try {
+      const renewed = await renewPatientSession(activeSession);
+      const [nextVisits, nextNotifications] = await Promise.all([
+        listRemoteVisits(renewed),
+        listRemoteNotifications(renewed),
+      ]);
+      setSession(renewed);
+      setRemoteVisits(nextVisits);
+      setRemoteNotifications(nextNotifications);
+      setLastSyncedAt(Date.now());
+      setConnection("CONNECTED");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر تحديث بيانات الحساب.";
+      setConnectionError(message);
+      setConnection(silent ? "OFFLINE" : "ERROR");
+      if (/انتهت جلسة الحساب|سجّل الدخول/.test(message)) {
+        setSession(null);
+        setRemoteVisits([]);
+        setRemoteNotifications([]);
+      }
+      throw error;
+    }
+  }, []);
 
-  const advanceVisitStatus = useCallback(
-    (visitId: string) => {
-      updateState((current) => ({
-        ...current,
-        visits: current.visits.map((visit) => (visit.id === visitId ? advanceVisit(visit) : visit)),
-      }));
-    },
-    [updateState],
-  );
+  useEffect(() => {
+    void Promise.all([AsyncStorage.getItem(STORAGE_KEY), loadPatientSession()])
+      .then(async ([saved, restoredSession]) => {
+        if (saved) {
+          const parsed: unknown = JSON.parse(saved);
+          if (isPersistedState(parsed)) {
+            setState({
+              localVisits: parsed.localVisits,
+              localNotifications: parsed.localNotifications,
+              preferences: {
+                appointmentAlerts: parsed.preferences.appointmentAlerts !== false,
+                medicalAlerts: parsed.preferences.medicalAlerts !== false,
+              },
+            });
+          }
+        }
+        if (restoredSession) {
+          setSession(restoredSession);
+          await syncWithSession(restoredSession, true).catch(() => undefined);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setReady(true));
+  }, [syncWithSession]);
+
+  const login = useCallback(async () => {
+    setConnection("CONNECTING");
+    setConnectionError(null);
+    try {
+      const nextSession = await startPatientLogin();
+      setSession(nextSession);
+      await syncWithSession(nextSession);
+    } catch (error) {
+      setConnection("LOCAL");
+      setConnectionError(error instanceof Error ? error.message : "تعذر تسجيل الدخول.");
+      throw error;
+    }
+  }, [syncWithSession]);
+
+  const logout = useCallback(async () => {
+    await clearPatientSession();
+    setSession(null);
+    setRemoteVisits([]);
+    setRemoteNotifications([]);
+    setConnection("LOCAL");
+    setConnectionError(null);
+    setLastSyncedAt(null);
+  }, []);
+
+  const sync = useCallback(async (silent = false) => {
+    if (!session) return;
+    await syncWithSession(session, silent);
+  }, [session, syncWithSession]);
+
+  const addVisit = useCallback(async (input: { clinicName: string; serviceName: string; districtLabel?: string; scheduledStart?: string }) => {
+    if (session) {
+      if (!input.districtLabel?.trim() || !input.scheduledStart?.trim()) {
+        throw new Error("أدخل الحي وموعد الزيارة عند استخدام حساب المريض.");
+      }
+      setConnection("CONNECTING");
+      const renewed = await renewPatientSession(session);
+      const visit = await createRemoteVisit(renewed, {
+        clinicName: input.clinicName,
+        serviceName: input.serviceName,
+        districtLabel: input.districtLabel,
+        scheduledStart: input.scheduledStart,
+      });
+      setSession(renewed);
+      setRemoteVisits((current) => [visit, ...current.filter((item) => item.id !== visit.id)]);
+      setConnection("CONNECTED");
+      setLastSyncedAt(Date.now());
+      return;
+    }
+
+    const visit = createVisit(input.clinicName, input.serviceName);
+    updateState((current) => ({
+      ...current,
+      localVisits: [visit, ...current.localVisits],
+      localNotifications: current.preferences.appointmentAlerts
+        ? [createAppointmentNotification(visit), ...current.localNotifications]
+        : current.localNotifications,
+    }));
+  }, [session, updateState]);
+
+  const advanceVisitStatus = useCallback((visitId: string) => {
+    updateState((current) => ({
+      ...current,
+      localVisits: current.localVisits.map((visit) => (visit.id === visitId ? advanceVisit(visit) : visit)),
+    }));
+  }, [updateState]);
 
   const addMedicalNotification = useCallback(() => {
     if (!state.preferences.medicalAlerts) return false;
     const notification = createMedicalNotification();
-    updateState((current) => ({ ...current, notifications: [notification, ...current.notifications] }));
+    updateState((current) => ({ ...current, localNotifications: [notification, ...current.localNotifications] }));
     return true;
   }, [state.preferences.medicalAlerts, updateState]);
 
-  const markNotificationRead = useCallback(
-    (notificationId: string) => {
-      updateState((current) => ({
-        ...current,
-        notifications: current.notifications.map((notification) =>
-          notification.id === notificationId ? { ...notification, read: true } : notification,
-        ),
-      }));
-    },
-    [updateState],
-  );
-
-  const markAllNotificationsRead = useCallback(() => {
+  const markNotificationRead = useCallback(async (notificationId: string) => {
+    if (notificationId.startsWith("WEB-N-") && session) {
+      const renewed = await renewPatientSession(session);
+      await markRemoteNotificationRead(renewed, notificationId);
+      setSession(renewed);
+      setRemoteNotifications((current) => current.map((item) => (item.id === notificationId ? { ...item, read: true } : item)));
+      return;
+    }
     updateState((current) => ({
       ...current,
-      notifications: current.notifications.map((notification) => ({ ...notification, read: true })),
+      localNotifications: current.localNotifications.map((item) => (item.id === notificationId ? { ...item, read: true } : item)),
     }));
+  }, [session, updateState]);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    const remoteUnread = remoteNotifications.filter((item) => !item.read);
+    for (const notification of remoteUnread) await markNotificationRead(notification.id);
+    updateState((current) => ({
+      ...current,
+      localNotifications: current.localNotifications.map((item) => ({ ...item, read: true })),
+    }));
+  }, [markNotificationRead, remoteNotifications, updateState]);
+
+  const setAppointmentAlerts = useCallback((enabled: boolean) => {
+    updateState((current) => ({ ...current, preferences: { ...current.preferences, appointmentAlerts: enabled } }));
   }, [updateState]);
 
-  const setAppointmentAlerts = useCallback(
-    (enabled: boolean) => {
-      updateState((current) => ({ ...current, preferences: { ...current.preferences, appointmentAlerts: enabled } }));
-    },
-    [updateState],
-  );
-
-  const setMedicalAlerts = useCallback(
-    (enabled: boolean) => {
-      updateState((current) => ({ ...current, preferences: { ...current.preferences, medicalAlerts: enabled } }));
-    },
-    [updateState],
-  );
+  const setMedicalAlerts = useCallback((enabled: boolean) => {
+    updateState((current) => ({ ...current, preferences: { ...current.preferences, medicalAlerts: enabled } }));
+  }, [updateState]);
 
   const resetLocalData = useCallback(() => {
     setState(defaultState);
     void AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
   }, []);
 
-  const value = useMemo<MediCareContextValue>(
-    () => ({
-      ...state,
-      ready,
-      unreadCount: state.notifications.filter((notification) => !notification.read).length,
-      addVisit,
-      advanceVisitStatus,
-      addMedicalNotification,
-      markNotificationRead,
-      markAllNotificationsRead,
-      setAppointmentAlerts,
-      setMedicalAlerts,
-      resetLocalData,
-    }),
-    [addMedicalNotification, addVisit, advanceVisitStatus, markAllNotificationsRead, markNotificationRead, ready, resetLocalData, setAppointmentAlerts, setMedicalAlerts, state],
-  );
+  const visits = useMemo(() => [...remoteVisits, ...state.localVisits].sort((left, right) => right.createdAt - left.createdAt), [remoteVisits, state.localVisits]);
+  const notifications = useMemo(() => [...remoteNotifications, ...state.localNotifications].sort((left, right) => right.createdAt - left.createdAt), [remoteNotifications, state.localNotifications]);
+
+  useEffect(() => {
+    void syncAppointmentReminders(visits, state.preferences.appointmentAlerts);
+  }, [state.preferences.appointmentAlerts, visits]);
+
+  const enableDeviceNotifications = useCallback(async () => {
+    const activation = await activateAppointmentNotifications(async (expoPushToken) => {
+      if (!session) return;
+      const renewed = await renewPatientSession(session);
+      await registerRemotePushToken(renewed, expoPushToken);
+      setSession(renewed);
+    });
+    if (activation.status === "enabled") {
+      await syncAppointmentReminders(visits, state.preferences.appointmentAlerts);
+    }
+    return activation;
+  }, [session, state.preferences.appointmentAlerts, visits]);
+
+  const value = useMemo<MediCareContextValue>(() => ({
+    visits,
+    notifications,
+    preferences: state.preferences,
+    ready,
+    unreadCount: notifications.filter((notification) => !notification.read).length,
+    connection,
+    connectionError,
+    session,
+    lastSyncedAt,
+    addVisit,
+    advanceVisitStatus,
+    addMedicalNotification,
+    markNotificationRead,
+    markAllNotificationsRead,
+    setAppointmentAlerts,
+    setMedicalAlerts,
+    login,
+    logout,
+    sync,
+    enableDeviceNotifications,
+    resetLocalData,
+  }), [addMedicalNotification, addVisit, advanceVisitStatus, connection, connectionError, enableDeviceNotifications, lastSyncedAt, login, logout, markAllNotificationsRead, markNotificationRead, notifications, ready, resetLocalData, session, setAppointmentAlerts, setMedicalAlerts, state.preferences, sync, visits]);
 
   return <MediCareContext.Provider value={value}>{children}</MediCareContext.Provider>;
 }

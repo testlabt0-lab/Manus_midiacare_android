@@ -33,7 +33,7 @@ const env = {
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "/manus-storage/icon_3d34d298.png",
-  scheme: schemeFromBundleId,
+  scheme: "medicarepro",
   iosBundleId: bundleId,
   androidPackage: bundleId,
 };
@@ -86,6 +86,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    [
+      "expo-notifications",
+      {
+        color: "#0B776B",
+        defaultChannel: "appointments",
+      },
+    ],
     [
       "expo-audio",
       {

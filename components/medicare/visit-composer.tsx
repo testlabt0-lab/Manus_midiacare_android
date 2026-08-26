@@ -10,9 +10,11 @@ type VisitComposerProps = {
 };
 
 export function VisitComposer({ visible, onClose }: VisitComposerProps) {
-  const { addVisit } = useMediCare();
+  const { addVisit, session } = useMediCare();
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
+  const [districtLabel, setDistrictLabel] = useState("");
+  const [scheduledStart, setScheduledStart] = useState("");
   const [error, setError] = useState("");
 
   const close = () => {
@@ -20,11 +22,13 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
     onClose();
   };
 
-  const save = () => {
+  const save = async () => {
     try {
-      addVisit(clinicName, serviceName);
+      await addVisit({ clinicName, serviceName, districtLabel, scheduledStart });
       setClinicName("");
       setServiceName("");
+      setDistrictLabel("");
+      setScheduledStart("");
       close();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "تعذر حفظ الزيارة الآن.");
@@ -43,7 +47,7 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
             </Pressable>
             <View style={styles.headerCopy}>
               <Text style={styles.title}>إضافة زيارة</Text>
-              <Text style={styles.subtitle}>سيُحفظ السجل محلياً على هذا الجهاز.</Text>
+              <Text style={styles.subtitle}>{session ? "سيُرسل الطلب إلى حسابك الصحي المتصل." : "سيُحفظ السجل محلياً على هذا الجهاز."}</Text>
             </View>
           </View>
 
@@ -65,11 +69,34 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
             placeholderTextColor="#93A7A1"
             style={styles.input}
             textAlign="right"
-            returnKeyType="done"
-            onSubmitEditing={save}
+            returnKeyType={session ? "next" : "done"}
+            onSubmitEditing={session ? undefined : () => void save()}
           />
+          {session ? <>
+            <Text style={styles.inputLabel}>الحي</Text>
+            <TextInput
+              value={districtLabel}
+              onChangeText={(value) => { setDistrictLabel(value); setError(""); }}
+              placeholder="مثال: حي النخيل"
+              placeholderTextColor="#93A7A1"
+              style={styles.input}
+              textAlign="right"
+              returnKeyType="next"
+            />
+            <Text style={styles.inputLabel}>موعد الزيارة</Text>
+            <TextInput
+              value={scheduledStart}
+              onChangeText={(value) => { setScheduledStart(value); setError(""); }}
+              placeholder="2026-08-26T14:30"
+              placeholderTextColor="#93A7A1"
+              style={styles.input}
+              textAlign="right"
+              returnKeyType="done"
+              onSubmitEditing={() => void save()}
+            />
+          </> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable onPress={save} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
+          <Pressable onPress={() => void save()} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
             <MaterialIcons name="add-circle-outline" size={21} color="#FFFFFF" />
             <Text style={styles.saveText}>حفظ الزيارة</Text>
           </Pressable>
