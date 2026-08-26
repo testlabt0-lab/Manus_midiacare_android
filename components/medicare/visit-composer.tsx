@@ -14,8 +14,18 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
   const [clinicName, setClinicName] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [districtLabel, setDistrictLabel] = useState("");
-  const [scheduledStart, setScheduledStart] = useState("");
+  const [visitDate, setVisitDate] = useState("");
+  const [visitTime, setVisitTime] = useState("");
   const [error, setError] = useState("");
+
+  const scheduledStart = visitDate && visitTime ? `${visitDate}T${visitTime}` : "";
+
+  const setSuggestedTime = (hoursFromNow: number) => {
+    const next = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
+    setVisitDate(next.toISOString().slice(0, 10));
+    setVisitTime(next.toTimeString().slice(0, 5));
+    setError("");
+  };
 
   const close = () => {
     setError("");
@@ -28,7 +38,8 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
       setClinicName("");
       setServiceName("");
       setDistrictLabel("");
-      setScheduledStart("");
+      setVisitDate("");
+      setVisitTime("");
       close();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "تعذر حفظ الزيارة الآن.");
@@ -84,16 +95,15 @@ export function VisitComposer({ visible, onClose }: VisitComposerProps) {
               returnKeyType="next"
             />
             <Text style={styles.inputLabel}>موعد الزيارة</Text>
-            <TextInput
-              value={scheduledStart}
-              onChangeText={(value) => { setScheduledStart(value); setError(""); }}
-              placeholder="2026-08-26T14:30"
-              placeholderTextColor="#93A7A1"
-              style={styles.input}
-              textAlign="right"
-              returnKeyType="done"
-              onSubmitEditing={() => void save()}
-            />
+            <Text style={styles.dateHelp}>اختر اقتراحاً أو اكتب التاريخ والوقت بصيغة واضحة.</Text>
+            <View style={styles.suggestionRow}>
+              <Pressable onPress={() => setSuggestedTime(24)} style={({ pressed }) => [styles.suggestion, pressed && styles.pressed]}><Text style={styles.suggestionText}>غداً</Text></Pressable>
+              <Pressable onPress={() => setSuggestedTime(2)} style={({ pressed }) => [styles.suggestion, pressed && styles.pressed]}><Text style={styles.suggestionText}>بعد ساعتين</Text></Pressable>
+            </View>
+            <View style={styles.dateRow}>
+              <TextInput value={visitTime} onChangeText={(value) => { setVisitTime(value.replace(/[^0-9:]/g, "").slice(0, 5)); setError(""); }} placeholder="14:30" placeholderTextColor="#93A7A1" style={[styles.input, styles.timeInput]} textAlign="center" keyboardType="numbers-and-punctuation" returnKeyType="done" onSubmitEditing={() => void save()} />
+              <TextInput value={visitDate} onChangeText={(value) => { setVisitDate(value.replace(/[^0-9-]/g, "").slice(0, 10)); setError(""); }} placeholder="2026-08-26" placeholderTextColor="#93A7A1" style={[styles.input, styles.dateInput]} textAlign="center" keyboardType="numbers-and-punctuation" returnKeyType="next" />
+            </View>
           </> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable onPress={() => void save()} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
@@ -118,6 +128,13 @@ const styles = StyleSheet.create({
   subtitle: { color: "#6A827C", fontSize: 13, lineHeight: 19, marginTop: 4, textAlign: "right" },
   inputLabel: { color: "#41665D", fontSize: 13, fontWeight: "700", marginBottom: 8, textAlign: "right" },
   input: { backgroundColor: "#F7FAF9", borderColor: "#D9E8E3", borderRadius: 14, borderWidth: 1, color: "#183B36", fontSize: 15, marginBottom: 17, minHeight: 52, paddingHorizontal: 15 },
+  dateHelp: { color: "#6A827C", fontSize: 11, lineHeight: 17, marginBottom: 9, textAlign: "right" },
+  suggestionRow: { flexDirection: "row-reverse", gap: 8, marginBottom: 10 },
+  suggestion: { backgroundColor: "#EAF6F3", borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7 },
+  suggestionText: { color: "#0B776B", fontSize: 12, fontWeight: "800" },
+  dateRow: { flexDirection: "row-reverse", gap: 9 },
+  dateInput: { flex: 1.3 },
+  timeInput: { flex: 0.7 },
   error: { color: "#AE403A", fontSize: 13, marginBottom: 14, textAlign: "right" },
   saveButton: { alignItems: "center", backgroundColor: "#0B776B", borderRadius: 15, flexDirection: "row", gap: 8, justifyContent: "center", minHeight: 54, marginTop: 6 },
   saveText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },

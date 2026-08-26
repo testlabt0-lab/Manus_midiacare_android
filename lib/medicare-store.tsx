@@ -24,6 +24,7 @@ import {
 import { activateAppointmentNotifications, syncAppointmentReminders, type NotificationActivation } from "@/lib/appointment-notifications";
 
 const STORAGE_KEY = "medicare-pro-mobile-local-data-v2";
+const SYNC_HISTORY_KEY = "medicare-pro-mobile-sync-history-v1";
 
 type Preferences = {
   appointmentAlerts: boolean;
@@ -38,6 +39,13 @@ type PersistedState = {
 
 export type ConnectionState = "LOCAL" | "CONNECTING" | "CONNECTED" | "OFFLINE" | "ERROR";
 
+export type SyncEvent = {
+  id: string;
+  at: number;
+  outcome: "SUCCESS" | "ERROR" | "OFFLINE";
+  label: string;
+};
+
 type MediCareContextValue = {
   visits: ClinicVisit[];
   notifications: ClinicNotification[];
@@ -48,6 +56,7 @@ type MediCareContextValue = {
   connectionError: string | null;
   session: PatientSession | null;
   lastSyncedAt: number | null;
+  syncHistory: SyncEvent[];
   addVisit: (input: { clinicName: string; serviceName: string; districtLabel?: string; scheduledStart?: string }) => Promise<void>;
   advanceVisitStatus: (visitId: string) => void;
   addMedicalNotification: () => boolean;
@@ -76,6 +85,18 @@ function isPersistedState(value: unknown): value is PersistedState {
   return Array.isArray(candidate.localVisits) && Array.isArray(candidate.localNotifications) && Boolean(candidate.preferences);
 }
 
+function parseSyncHistory(value: string | null): SyncEvent[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as SyncEvent[];
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => typeof item?.at === "number" && typeof item?.label === "string" && ["SUCCESS", "ERROR", "OFFLINE"].includes(item.outcome)).slice(0, 5)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export function MediCareProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PersistedState>(defaultState);
   const [remoteVisits, setRemoteVisits] = useState<ClinicVisit[]>([]);
@@ -84,12 +105,22 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<ConnectionState>("LOCAL");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncHistory, setSyncHistory] = useState<SyncEvent[]>([]);
   const [ready, setReady] = useState(false);
 
   const updateState = useCallback((updater: (current: PersistedState) => PersistedState) => {
     setState((current) => {
       const next = updater(current);
       void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
+      return next;
+    });
+  }, []);
+
+  const recordSync = useCallback((outcome: SyncEvent["outcome"], label: string) => {
+    setSyncHistory((current) => {
+      const at = Date.now();
+      const next = [{ id: `${at}-${outcome}`, at, outcome, label }, ...current].slice(0, 5);
+      void AsyncStorage.setItem(SYNC_HISTORY_KEY, JSON.stringify(next)).catch(() => undefined);
       return next;
     });
   }, []);
@@ -108,10 +139,12 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
       setRemoteNotifications(nextNotifications);
       setLastSyncedAt(Date.now());
       setConnection("CONNECTED");
+      recordSync("SUCCESS", "تم تحديث زيارات وتنبيهات حساب المريض.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "تعذر تحديث بيانات الحساب.";
       setConnectionError(message);
       setConnection(silent ? "OFFLINE" : "ERROR");
+      recordSync(silent ? "OFFLINE" : "ERROR", message);
       if (/انتهت جلسة الحساب|سجّل الدخول/.test(message)) {
         setSession(null);
         setRemoteVisits([]);
@@ -119,11 +152,11 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
       }
       throw error;
     }
-  }, []);
+  }, [recordSync]);
 
   useEffect(() => {
-    void Promise.all([AsyncStorage.getItem(STORAGE_KEY), loadPatientSession()])
-      .then(async ([saved, restoredSession]) => {
+    void Promise.all([AsyncStorage.getItem(STORAGE_KEY), AsyncStorage.getItem(SYNC_HISTORY_KEY), loadPatientSession()])
+      .then(async ([saved, storedHistory, restoredSession]) => {
         if (saved) {
           const parsed: unknown = JSON.parse(saved);
           if (isPersistedState(parsed)) {
@@ -137,6 +170,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
             });
           }
         }
+        setSyncHistory(parseSyncHistory(storedHistory));
         if (restoredSession) {
           setSession(restoredSession);
           await syncWithSession(restoredSession, true).catch(() => undefined);
@@ -178,7 +212,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
   const addVisit = useCallback(async (input: { clinicName: string; serviceName: string; districtLabel?: string; scheduledStart?: string }) => {
     if (session) {
       if (!input.districtLabel?.trim() || !input.scheduledStart?.trim()) {
-        throw new Error("أدخل الحي وموعد الزيارة عند استخدام حساب المريض.");
+        throw new Error("أدخل الحي وتاريخ ووقت موعد الزيارة عند استخدام حساب المريض.");
       }
       setConnection("CONNECTING");
       const renewed = await renewPatientSession(session);
@@ -192,6 +226,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
       setRemoteVisits((current) => [visit, ...current.filter((item) => item.id !== visit.id)]);
       setConnection("CONNECTED");
       setLastSyncedAt(Date.now());
+      recordSync("SUCCESS", "تم إرسال طلب زيارة جديد إلى الحساب.");
       return;
     }
 
@@ -203,7 +238,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
         ? [createAppointmentNotification(visit), ...current.localNotifications]
         : current.localNotifications,
     }));
-  }, [session, updateState]);
+  }, [recordSync, session, updateState]);
 
   const advanceVisitStatus = useCallback((visitId: string) => {
     updateState((current) => ({
@@ -285,6 +320,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
     connectionError,
     session,
     lastSyncedAt,
+    syncHistory,
     addVisit,
     advanceVisitStatus,
     addMedicalNotification,
@@ -297,7 +333,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
     sync,
     enableDeviceNotifications,
     resetLocalData,
-  }), [addMedicalNotification, addVisit, advanceVisitStatus, connection, connectionError, enableDeviceNotifications, lastSyncedAt, login, logout, markAllNotificationsRead, markNotificationRead, notifications, ready, resetLocalData, session, setAppointmentAlerts, setMedicalAlerts, state.preferences, sync, visits]);
+  }), [addMedicalNotification, addVisit, advanceVisitStatus, connection, connectionError, enableDeviceNotifications, lastSyncedAt, login, logout, markAllNotificationsRead, markNotificationRead, notifications, ready, resetLocalData, session, setAppointmentAlerts, setMedicalAlerts, state.preferences, sync, syncHistory, visits]);
 
   return <MediCareContext.Provider value={value}>{children}</MediCareContext.Provider>;
 }
