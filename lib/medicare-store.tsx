@@ -22,12 +22,14 @@ import {
   type PatientSession,
 } from "@/lib/patient-api";
 import { activateAppointmentNotifications, syncAppointmentReminders, type NotificationActivation } from "@/lib/appointment-notifications";
+import { isReminderLeadMinutes, type ReminderLeadMinutes } from "@/lib/appointment-reminder";
 
 const STORAGE_KEY = "medicare-pro-mobile-local-data-v2";
 const SYNC_HISTORY_KEY = "medicare-pro-mobile-sync-history-v1";
 
 type Preferences = {
   appointmentAlerts: boolean;
+  appointmentReminderMinutes: ReminderLeadMinutes;
   medicalAlerts: boolean;
 };
 
@@ -63,6 +65,7 @@ type MediCareContextValue = {
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   setAppointmentAlerts: (enabled: boolean) => void;
+  setAppointmentReminderMinutes: (minutes: ReminderLeadMinutes) => void;
   setMedicalAlerts: (enabled: boolean) => void;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -74,7 +77,7 @@ type MediCareContextValue = {
 const defaultState: PersistedState = {
   localVisits: [],
   localNotifications: [],
-  preferences: { appointmentAlerts: true, medicalAlerts: true },
+  preferences: { appointmentAlerts: true, appointmentReminderMinutes: 60, medicalAlerts: true },
 };
 
 const MediCareContext = createContext<MediCareContextValue | null>(null);
@@ -165,6 +168,7 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
               localNotifications: parsed.localNotifications,
               preferences: {
                 appointmentAlerts: parsed.preferences.appointmentAlerts !== false,
+                appointmentReminderMinutes: isReminderLeadMinutes(parsed.preferences.appointmentReminderMinutes) ? parsed.preferences.appointmentReminderMinutes : 60,
                 medicalAlerts: parsed.preferences.medicalAlerts !== false,
               },
             });
@@ -281,6 +285,10 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
     updateState((current) => ({ ...current, preferences: { ...current.preferences, appointmentAlerts: enabled } }));
   }, [updateState]);
 
+  const setAppointmentReminderMinutes = useCallback((minutes: ReminderLeadMinutes) => {
+    updateState((current) => ({ ...current, preferences: { ...current.preferences, appointmentReminderMinutes: minutes } }));
+  }, [updateState]);
+
   const setMedicalAlerts = useCallback((enabled: boolean) => {
     updateState((current) => ({ ...current, preferences: { ...current.preferences, medicalAlerts: enabled } }));
   }, [updateState]);
@@ -294,8 +302,8 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
   const notifications = useMemo(() => [...remoteNotifications, ...state.localNotifications].sort((left, right) => right.createdAt - left.createdAt), [remoteNotifications, state.localNotifications]);
 
   useEffect(() => {
-    void syncAppointmentReminders(visits, state.preferences.appointmentAlerts);
-  }, [state.preferences.appointmentAlerts, visits]);
+    void syncAppointmentReminders(visits, state.preferences.appointmentAlerts, state.preferences.appointmentReminderMinutes);
+  }, [state.preferences.appointmentAlerts, state.preferences.appointmentReminderMinutes, visits]);
 
   const enableDeviceNotifications = useCallback(async () => {
     const activation = await activateAppointmentNotifications(async (expoPushToken) => {
@@ -305,10 +313,10 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
       setSession(renewed);
     });
     if (activation.status === "enabled") {
-      await syncAppointmentReminders(visits, state.preferences.appointmentAlerts);
+      await syncAppointmentReminders(visits, state.preferences.appointmentAlerts, state.preferences.appointmentReminderMinutes);
     }
     return activation;
-  }, [session, state.preferences.appointmentAlerts, visits]);
+  }, [session, state.preferences.appointmentAlerts, state.preferences.appointmentReminderMinutes, visits]);
 
   const value = useMemo<MediCareContextValue>(() => ({
     visits,
@@ -327,13 +335,14 @@ export function MediCareProvider({ children }: { children: ReactNode }) {
     markNotificationRead,
     markAllNotificationsRead,
     setAppointmentAlerts,
+    setAppointmentReminderMinutes,
     setMedicalAlerts,
     login,
     logout,
     sync,
     enableDeviceNotifications,
     resetLocalData,
-  }), [addMedicalNotification, addVisit, advanceVisitStatus, connection, connectionError, enableDeviceNotifications, lastSyncedAt, login, logout, markAllNotificationsRead, markNotificationRead, notifications, ready, resetLocalData, session, setAppointmentAlerts, setMedicalAlerts, state.preferences, sync, syncHistory, visits]);
+  }), [addMedicalNotification, addVisit, advanceVisitStatus, connection, connectionError, enableDeviceNotifications, lastSyncedAt, login, logout, markAllNotificationsRead, markNotificationRead, notifications, ready, resetLocalData, session, setAppointmentAlerts, setAppointmentReminderMinutes, setMedicalAlerts, state.preferences, sync, syncHistory, visits]);
 
   return <MediCareContext.Provider value={value}>{children}</MediCareContext.Provider>;
 }

@@ -4,7 +4,7 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import type { ClinicVisit } from "@/lib/medicare-domain";
-import { getReminderTimestamp } from "@/lib/appointment-reminder";
+import { getReminderLabel, getReminderTimestamp, type ReminderLeadMinutes } from "@/lib/appointment-reminder";
 
 const APPOINTMENTS_CHANNEL = "appointments";
 
@@ -56,7 +56,7 @@ export async function activateAppointmentNotifications(
   return { status: "enabled", expoPushToken };
 }
 
-export async function syncAppointmentReminders(visits: ClinicVisit[], enabled: boolean) {
+export async function syncAppointmentReminders(visits: ClinicVisit[], enabled: boolean, leadMinutes: ReminderLeadMinutes) {
   if (Platform.OS === "web" || !enabled) return;
   const permission = await Notifications.getPermissionsAsync();
   if (permission.status !== "granted") return;
@@ -67,12 +67,12 @@ export async function syncAppointmentReminders(visits: ClinicVisit[], enabled: b
   const eligibleVisits = visits.filter((visit) => typeof visit.scheduledStart === "number" && visit.status !== "COMPLETED" && visit.status !== "CANCELLED");
 
   await Promise.all(eligibleVisits.map(async (visit) => {
-    const reminderAt = getReminderTimestamp(visit.scheduledStart as number, now);
+    const reminderAt = getReminderTimestamp(visit.scheduledStart as number, leadMinutes, now);
     if (!reminderAt) return;
     await Notifications.scheduleNotificationAsync({
       content: {
         title: "تذكير بموعد MediCare Pro",
-        body: `لديك ${visit.serviceName} لدى ${visit.clinicName} خلال ساعة.`,
+        body: `لديك ${visit.serviceName} لدى ${visit.clinicName} ${getReminderLabel(leadMinutes)}.`,
         data: { url: "/visits", visitId: visit.id },
         sound: "default",
       },
