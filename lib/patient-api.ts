@@ -2,6 +2,7 @@ import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 
+import { createReviewRequiredAvailability, type BookingAvailability, type PatientBookingAddress, type PatientBookingClinic, type PatientBookingService } from "@/lib/booking-availability";
 import type { ClinicNotification, ClinicVisit, VisitStatus } from "@/lib/medicare-domain";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -10,6 +11,7 @@ const DEFAULT_API_ORIGIN = "https://medicarepro-myvdwgyk.manus.space";
 const SESSION_KEY = "medicare-pro-patient-session-v1";
 const MOBILE_CLIENT_ID = "medicare-pro-mobile-android";
 const REDIRECT_URI = "medicarepro://auth";
+export const PATIENT_BOOKING_AVAILABILITY_ENABLED = false;
 
 type TrpcEnvelope<T> = {
   result?: { data?: { json?: T } };
@@ -61,6 +63,12 @@ export type PatientInvoice = {
   invoiceNo: string;
   totalHalalas: number;
   status: "DUE" | "PAID";
+};
+
+type RemoteBookingAvailability = {
+  clinics: PatientBookingClinic[];
+  services: PatientBookingService[];
+  addresses: PatientBookingAddress[];
 };
 
 function resolveApiOrigin(configuredOrigin = process.env.EXPO_PUBLIC_PATIENT_API_ORIGIN) {
@@ -206,6 +214,19 @@ export async function renewPatientSession(session: PatientSession): Promise<Pati
 export async function listRemoteVisits(session: PatientSession) {
   const visits = await callTrpc<RemoteVisit[]>("visits.listMine", session.accessToken);
   return visits.map(mapRemoteVisit);
+}
+
+export async function getRemoteBookingAvailability(session: PatientSession): Promise<BookingAvailability> {
+  if (!PATIENT_BOOKING_AVAILABILITY_ENABLED) return createReviewRequiredAvailability();
+  const options = await callTrpc<RemoteBookingAvailability>("patientBooking.options", session.accessToken);
+  return {
+    mode: "REMOTE",
+    clinics: options.clinics,
+    services: options.services,
+    addresses: options.addresses,
+    slots: [],
+    notice: "تعرض الخيارات الحالية من حسابك الصحي. يتحقق الخادم من الفترة النهائية عند التأكيد.",
+  };
 }
 
 export async function getRemoteVisit(session: PatientSession, visitId: number) {
